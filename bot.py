@@ -11,6 +11,7 @@ from aiogram.types import (
     LabeledPrice, PreCheckoutQuery, Message, CallbackQuery
 )
 import yt_dlp
+from pytubefix import YouTube
 
 # ========== SOZLAMALAR (НАСТРОЙКИ) ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -44,8 +45,8 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- Aniq va ishonchli yuklab olish funksiyasi ---
-def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> str:
+# --- Instagram va TikTok uchun yt-dlp ---
+def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best") -> str:
     unique_id = os.urandom(6).hex()
     output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
@@ -60,22 +61,42 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
-        },
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['tv_embedded', 'web_embedded', 'mweb']
-            }
         }
     }
-    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     
     downloaded_files = glob.glob(f"downloads/{unique_id}_*")
     if not downloaded_files:
         raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
-    
     return downloaded_files[0]
+
+# --- YouTube uchun maxsus yuklovchi (pytubefix) ---
+def download_youtube_video(url: str, res: str = "720") -> str:
+    os.makedirs("downloads", exist_ok=True)
+    unique_id = os.urandom(6).hex()
+    
+    # 1. pytubefix orqali urinish (Android / iOS mijozlari)
+    for client_type in ['ANDROID', 'IOS', 'WEB']:
+        try:
+            yt = YouTube(url, client=client_type)
+            stream = yt.streams.filter(res=f"{res}p", progressive=True).first()
+            if not stream:
+                stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
+            if not stream:
+                stream = yt.streams.get_highest_resolution()
+            
+            if stream:
+                filename = f"{unique_id}_{yt.video_id}.mp4"
+                file_path = stream.download(output_path="downloads", filename=filename)
+                if os.path.exists(file_path):
+                    return file_path
+        except Exception as e:
+            logging.warning(f"pytubefix {client_type} xatolik: {e}")
+            continue
+            
+    # 2. Zaxira: yt-dlp orqali urinish
+    return download_media(url, f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best")
 
 # --- /start buyrug'i ---
 @dp.message(CommandStart())
@@ -135,13 +156,14 @@ async def handle_links(message: Message):
             await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    # Instagram / TikTok yoki guruhlarda avtomatik
+    # Instagram / TikTok yoki guruhlarda YouTube
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
-        # Guruhlarda va Instagram/TikTok uchun eng mos format
-        format_spec = "bestvideo[height<=720]+bestaudio/best[height<=720]/best" if ("youtube.com" in url or "youtu.be" in url) else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-        file_path = await loop.run_in_executor(None, download_media, url, format_spec)
+        if "youtube.com" in url or "youtu.be" in url:
+            file_path = await loop.run_in_executor(None, download_youtube_video, url, "720")
+        else:
+            file_path = await loop.run_in_executor(None, download_media, url)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
@@ -170,9 +192,8 @@ async def process_free_yt(callback: CallbackQuery):
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="upload_video")
     
     try:
-        format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best/18/best"
         loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_media, url, format_str)
+        file_path = await loop.run_in_executor(None, download_youtube_video, url, res)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
@@ -227,9 +248,8 @@ async def on_successful_payment(message: Message):
 
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
-        format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best"
         loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_media, url, format_str)
+        file_path = await loop.run_in_executor(None, download_youtube_video, url, res)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
