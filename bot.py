@@ -15,6 +15,7 @@ import yt_dlp
 
 # ========== SOZLAMALAR (НАСТРОЙКИ) ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY")
 CHANNEL_USERNAME = "@unbox_uzb"
 CHANNEL_URL = "https://t.me/unbox_uzb"
 PROMO_CAPTION = "📥 @videoni_yuklaydigan_bot orqali yuklab olindi!\n📢 Yanada qiziqarli ma'lumotlar @unbox_uzb kanalida, obuna bo'ling!"
@@ -29,15 +30,6 @@ LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|yo
 
 user_links = {}
 paid_downloads = {}
-
-# Invidious API serverlari (YouTube Shorts ni blokirovkasiz yuklash uchun)
-INVIDIOUS_INSTANCES = [
-    "https://inv.nadeko.net",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.jing.rocks",
-    "https://vid.puffyan.us",
-    "https://invidious.private.coffee"
-]
 
 # --- YouTube video ID ajratib olish ---
 def extract_youtube_id(url: str) -> str:
@@ -74,7 +66,7 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- Instagram va TikTok yuklovchi ---
+# --- Instagram va TikTok yuklovchi (yt-dlp) ---
 def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best") -> str:
     unique_id = os.urandom(6).hex()
     output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
@@ -100,32 +92,36 @@ def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ex
         raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
     return downloaded_files[0]
 
-# --- YouTube Shorts ni to'g'ridan-to'g'ri MP4 qilib yuklash ---
-async def download_youtube_shorts(url: str) -> str:
-    video_id = extract_youtube_id(url)
-    if not video_id:
-        raise ValueError("Video ID topilmadi.")
-        
+# --- YouTube Shorts ni RapidAPI orqali to'g'ridan-to'g'ri MP4 yuklash ---
+async def download_shorts_rapidapi(url: str) -> str:
     os.makedirs("downloads", exist_ok=True)
     temp_path = f"downloads/shorts_{os.urandom(6).hex()}.mp4"
 
-    # Invidious API orqali yuklash
-    for instance in INVIDIOUS_INSTANCES:
+    # 1. RapidAPI orqali yuklash
+    if RAPIDAPI_KEY:
         try:
-            api_url = f"{instance}/api/v1/videos/{video_id}"
+            endpoint = "https://social-download-all-in-one.p.rapidapi.com/v1/social/autolink"
+            headers = {
+                "x-rapidapi-key": RAPIDAPI_KEY,
+                "x-rapidapi-host": "social-download-all-in-one.p.rapidapi.com",
+                "Content-Type": "application/json"
+            }
+            payload = {"url": url}
             async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, timeout=7) as resp:
+                async with session.post(endpoint, json=payload, headers=headers, timeout=15) as resp:
                     if resp.status == 200:
                         data = await resp.json()
-                        streams = data.get("formatStreams", [])
-                        video_stream_url = None
-                        for s in streams:
-                            if "mp4" in s.get("type", "").lower() or "video" in s.get("type", "").lower():
-                                video_stream_url = s.get("url")
+                        medias = data.get("medias", [])
+                        video_url = None
+                        for m in medias:
+                            if m.get("type") == "video" or "mp4" in m.get("extension", "").lower():
+                                video_url = m.get("url")
                                 break
-                        
-                        if video_stream_url:
-                            async with session.get(video_stream_url, timeout=40) as v_resp:
+                        if not video_url and "url" in data:
+                            video_url = data["url"]
+
+                        if video_url:
+                            async with session.get(video_url, timeout=40) as v_resp:
                                 if v_resp.status == 200:
                                     with open(temp_path, "wb") as f:
                                         while True:
@@ -135,10 +131,9 @@ async def download_youtube_shorts(url: str) -> str:
                                             f.write(chunk)
                                     return temp_path
         except Exception as e:
-            logging.warning(f"Invidious {instance} xatolik: {e}")
-            continue
+            logging.error(f"RapidAPI xatolik: {e}")
 
-    # Zaxira: yt-dlp
+    # 2. Zaxira: yt-dlp
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, download_media, url, "best[ext=mp4]/best/18")
 
@@ -217,7 +212,7 @@ async def handle_links(message: Message):
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         if is_shorts:
-            file_path = await download_youtube_shorts(url)
+            file_path = await download_shorts_rapidapi(url)
         else:
             loop = asyncio.get_event_loop()
             file_path = await loop.run_in_executor(None, download_media, url)
