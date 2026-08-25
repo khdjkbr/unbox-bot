@@ -2,6 +2,7 @@ import os
 import re
 import asyncio
 import logging
+import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
@@ -23,10 +24,8 @@ logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Havolalarni aniqlash uchun Regex
 LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\S+)'
 
-# Vaqtinchalik havolalar va to'lovlarni saqlash
 user_links = {}
 paid_downloads = {}
 
@@ -45,7 +44,31 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- yt-dlp orqali yuklab olish ---
+# --- To'g'ridan-to'g'ri HD yuklash havolasini olish (Cobalt API orqali) ---
+async def get_direct_download_link(url: str, quality: str) -> str:
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0"
+    }
+    payload = {
+        "url": url,
+        "vQuality": quality
+    }
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=10) as resp:
+                if resp.status == 200:
+                    data = await resp.json()
+                    if "url" in data:
+                        return data["url"]
+        except Exception as e:
+            logging.error(f"Cobalt API xatolik: {e}")
+    
+    # Zaxira havola (agar API band bo'lsa)
+    return f"https://cobalt.tools/?u={url}"
+
+# --- Bepul videolarni yt-dlp orqali yuklab olish ---
 def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> str:
     output_template = f"downloads/%(id)s_{format_spec.replace('/', '_')}.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
@@ -57,7 +80,6 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
-        # YouTube cheklovlarini aylanib o'tish
         'extractor_args': {
             'youtube': {
                 'player_client': ['ios', 'android', 'web_embedded']
@@ -98,7 +120,7 @@ async def cb_check_sub(callback: CallbackQuery):
     else:
         await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
-# --- Havolalarni qabul qilish va yuklash ---
+# --- Havolalarni qabul qilish ---
 @dp.message(F.text)
 async def handle_links(message: Message):
     match = re.search(LINK_REGEX, message.text)
@@ -106,7 +128,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # 1. Shaxsiy xabarlarda obunani tekshirish
+    # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
@@ -116,7 +138,7 @@ async def handle_links(message: Message):
             )
             return
 
-        # YouTube havolasi bo'lsa sifat tanlash menyusi
+        # YouTube bo'lsa sifat tanlash menyusi
         if "youtube.com" in url or "youtu.be" in url:
             user_links[message.from_user.id] = url
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
@@ -127,12 +149,15 @@ async def handle_links(message: Message):
                 [
                     InlineKeyboardButton(text="⭐ 720p HD (25 ⭐️)", callback_data="yt_720"),
                     InlineKeyboardButton(text="⭐ 1080p FHD (25 ⭐️)", callback_data="yt_1080")
+                ],
+                [
+                    InlineKeyboardButton(text="⭐ 2K / 4K Ultra HD (25 ⭐️)", callback_data="yt_max")
                 ]
             ])
             await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    # 2. Instagram / TikTok (yoki guruhlarda avtomatik yuklash)
+    # Instagram / TikTok (yoki guruhlarda avtomatik)
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
@@ -182,8 +207,8 @@ async def process_free_yt(callback: CallbackQuery):
         logging.error(f"Xatolik: {e}")
         await callback.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
 
-# --- Pullik YouTube (720p / 1080p 25 Yulduz) ---
-@dp.callback_query(F.data.in_(["yt_720", "yt_1080"]))
+# --- Pullik YouTube (720p / 1080p / 4K - 25 Yulduz) ---
+@dp.callback_query(F.data.in_(["yt_720", "yt_1080", "yt_max"]))
 async def process_paid_yt(callback: CallbackQuery):
     user_id = callback.from_user.id
     url = user_links.get(user_id)
@@ -191,10 +216,75 @@ async def process_paid_yt(callback: CallbackQuery):
         await callback.answer("❌ Havola eskirgan, iltimos qaytadan yuboring.", show_alert=True)
         return
 
-    res = "720" if callback.data == "yt_720" else "1080"
-    paid_downloads[user_id] = {"url": url, "res": res}
+    res_labels = {
+        "yt_720": "720p HD",
+        "yt_1080": "1080p Full HD",
+        "yt_max": "2K / 4K Ultra HD"
+    }
+    selected_label = res_labels.get(callback.data, "HD")
+    quality_code = "720" if callback.data == "yt_720" else ("1080" if callback.data == "yt_1080" else "max")
+    
+    paid_downloads[user_id] = {"url": url, "quality": quality_code, "label": selected_label}
 
-    prices = [LabeledPrice(label=f"{res}p sifatda yuklash", amount=25)]
+    prices = [LabeledPrice(label=f"{selected_label} sifatda yuklash", amount=25)]
     await callback.message.delete()
     await bot.send_invoice(
-        chat_id
+        chat_id=callback.message.chat.id,
+        title=f"YouTube {selected_label} yuklash",
+        description=f"Videoni yuqori sifatda ({selected_label}) to'g'ridan-to'g'ri yuklab olish havolasi.",
+        payload=f"yt_hd_{user_id}",
+        currency="XTR",
+        prices=prices
+    )
+
+@dp.pre_checkout_query()
+async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+# --- To'lovdan so'ng to'g'ridan-to'g'ri yuklash havolasini taqdim etish ---
+@dp.message(F.successful_payment)
+async def on_successful_payment(message: Message):
+    user_id = message.from_user.id
+    if user_id not in paid_downloads:
+        return
+
+    data = paid_downloads.pop(user_id)
+    url = data["url"]
+    quality = data["quality"]
+    label = data["label"]
+
+    # To'g'ridan-to'g'ri yuklash havolasini olish
+    download_url = await get_direct_download_link(url, quality)
+
+    download_keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📥 {label} videoni yuklab olish", url=download_url)]
+    ])
+
+    await message.answer(
+        f"⭐ <b>To'lov muvaffaqiyatli qabul qilindi!</b>\n\n"
+        f"🎬 <b>Video sifati:</b> {label}\n\n"
+        f"Quyidagi tugma orqali videoni to'liq sifatda (ovozli) to'g'ridan-to'g'ri qurilmangizga yuklab olishingiz mumkin:\n\n"
+        f"{PROMO_CAPTION}",
+        reply_markup=download_keyboard,
+        parse_mode="HTML"
+    )
+
+# --- Serverni 24/7 ushlab turish ---
+async def handle_ping(request):
+    return web.Response(text="Bot faol va 24/7 ishlamoqda!")
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_get('/', handle_ping)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', PORT)
+    await site.start()
+
+async def main():
+    await start_web_server()
+    print("Bot muvaffaqiyatli ishga tushirildi!")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
