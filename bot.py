@@ -30,6 +30,26 @@ LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|yo
 user_links = {}
 paid_downloads = {}
 
+# --- YouTube video ID ajratib olish ---
+def extract_youtube_id(url: str) -> str:
+    patterns = [
+        r'(?:v=|\/)([0-9A-Za-z_-]{11})',
+        r'youtu\.be\/([0-9A-Za-z_-]{11})',
+        r'shorts\/([0-9A-Za-z_-]{11})'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return ""
+
+# --- Brauzerda yuklash havolasi ---
+def get_browser_download_url(url: str) -> str:
+    video_id = extract_youtube_id(url)
+    if video_id:
+        return f"https://ssyoutube.com/watch?v={video_id}"
+    return f"https://cobalt.tools/?u={url}"
+
 # --- Kanalga obunani tekshirish ---
 async def check_subscription(user_id: int) -> bool:
     try:
@@ -45,7 +65,7 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- Instagram va TikTok uchun yt-dlp ---
+# --- Instagram, TikTok va Shorts yuklovchi ---
 def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best") -> str:
     unique_id = os.urandom(6).hex()
     output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
@@ -70,33 +90,6 @@ def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ex
     if not downloaded_files:
         raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
     return downloaded_files[0]
-
-# --- YouTube uchun maxsus yuklovchi (pytubefix) ---
-def download_youtube_video(url: str, res: str = "720") -> str:
-    os.makedirs("downloads", exist_ok=True)
-    unique_id = os.urandom(6).hex()
-    
-    # 1. pytubefix orqali urinish (Android / iOS mijozlari)
-    for client_type in ['ANDROID', 'IOS', 'WEB']:
-        try:
-            yt = YouTube(url, client=client_type)
-            stream = yt.streams.filter(res=f"{res}p", progressive=True).first()
-            if not stream:
-                stream = yt.streams.filter(progressive=True).order_by('resolution').desc().first()
-            if not stream:
-                stream = yt.streams.get_highest_resolution()
-            
-            if stream:
-                filename = f"{unique_id}_{yt.video_id}.mp4"
-                file_path = stream.download(output_path="downloads", filename=filename)
-                if os.path.exists(file_path):
-                    return file_path
-        except Exception as e:
-            logging.warning(f"pytubefix {client_type} xatolik: {e}")
-            continue
-            
-    # 2. Zaxira: yt-dlp orqali urinish
-    return download_media(url, f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best")
 
 # --- /start buyrug'i ---
 @dp.message(CommandStart())
@@ -130,7 +123,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Shaxsiy xabarlarda obunani tekshirish
+    # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
@@ -140,8 +133,12 @@ async def handle_links(message: Message):
             )
             return
 
-        # YouTube bo'lsa sifat tanlash menyusi
-        if "youtube.com" in url or "youtu.be" in url:
+    is_youtube = ("youtube.com" in url or "youtu.be" in url)
+    is_shorts = "/shorts/" in url
+
+    # 1. Agar YouTube to'liq video bo'lsa (Shorts EMAS):
+    if is_youtube and not is_shorts:
+        if message.chat.type == "private":
             user_links[message.from_user.id] = url
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [
@@ -153,17 +150,21 @@ async def handle_links(message: Message):
                     InlineKeyboardButton(text="⭐ 1080p FHD (25 ⭐️)", callback_data="yt_1080")
                 ]
             ])
-            await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
-            return
+            await message.answer("🎬 YouTube videoni qaysi formatda yuklab olmoqchisiz?", reply_markup=keyboard)
+        else:
+            # Guruhlarda to'g'ridan-to'g'ri brauzer havolasini yuborish
+            download_url = get_browser_download_url(url)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🌐 Videoni brauzerda yuklab olish", url=download_url)]
+            ])
+            await message.reply(f"🎬 YouTube videoni yuklab olish uchun quyidagi tugmani bosing:\n\n{PROMO_CAPTION}", reply_markup=kb)
+        return
 
-    # Instagram / TikTok yoki guruhlarda YouTube
+    # 2. Instagram, TikTok yoki YouTube Shorts bo'lsa: fayl sifatida Telegramga yuklash
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
-        if "youtube.com" in url or "youtu.be" in url:
-            file_path = await loop.run_in_executor(None, download_youtube_video, url, "720")
-        else:
-            file_path = await loop.run_in_executor(None, download_media, url)
+        file_path = await loop.run_in_executor(None, download_media, url)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
@@ -178,7 +179,7 @@ async def handle_links(message: Message):
         logging.error(f"Xatolik: {e}")
         await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
 
-# --- Bepul YouTube (360p / 480p) ---
+# --- Bepul YouTube 360p / 480p (Brauzer orqali havola) ---
 @dp.callback_query(F.data.in_(["yt_360", "yt_480"]))
 async def process_free_yt(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -188,27 +189,21 @@ async def process_free_yt(callback: CallbackQuery):
         return
 
     res = "360" if callback.data == "yt_360" else "480"
-    await callback.message.delete()
-    await bot.send_chat_action(chat_id=callback.message.chat.id, action="upload_video")
-    
-    try:
-        loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_youtube_video, url, res)
-        
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        if file_size_mb > 50:
-            await callback.message.answer("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
-            os.remove(file_path)
-            return
+    download_url = get_browser_download_url(url)
 
-        video_file = types.FSInputFile(file_path)
-        await callback.message.answer_video(video=video_file, caption=PROMO_CAPTION)
-        os.remove(file_path)
-    except Exception as e:
-        logging.error(f"Xatolik: {e}")
-        await callback.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"🌐 {res}p videoni yuklab olish", url=download_url)]
+    ])
 
-# --- Pullik YouTube (720p / 1080p - 25 Yulduz) ---
+    await callback.message.edit_text(
+        f"🎬 <b>YouTube {res}p videoni yuklab olish havolasi tayyor!</b>\n\n"
+        f"Quyidagi tugma orqali videoni brauzeringizda to'g'ridan-to'g'ri yuklab olishingiz mumkin:\n\n"
+        f"{PROMO_CAPTION}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
+
+# --- Pullik YouTube 720p / 1080p (25 Yulduz) ---
 @dp.callback_query(F.data.in_(["yt_720", "yt_1080"]))
 async def process_paid_yt(callback: CallbackQuery):
     user_id = callback.from_user.id
@@ -220,12 +215,12 @@ async def process_paid_yt(callback: CallbackQuery):
     res = "720" if callback.data == "yt_720" else "1080"
     paid_downloads[user_id] = {"url": url, "res": res}
 
-    prices = [LabeledPrice(label=f"{res}p sifatda yuklash", amount=25)]
+    prices = [LabeledPrice(label=f"{res}p HD sifatda yuklash", amount=25)]
     await callback.message.delete()
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
         title=f"YouTube {res}p HD yuklash",
-        description=f"Videoni yuqori sifatda ({res}p) to'liq yuklab olish.",
+        description=f"Videoni yuqori sifatda ({res}p HD) to'g'ridan-to'g'ri yuklab olish havolasi.",
         payload=f"yt_hd_{user_id}",
         currency="XTR",
         prices=prices
@@ -235,7 +230,7 @@ async def process_paid_yt(callback: CallbackQuery):
 async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# --- To'lovdan so'ng videoni yuborish ---
+# --- To'lovdan so'ng HD yuklash havolasini berish ---
 @dp.message(F.successful_payment)
 async def on_successful_payment(message: Message):
     user_id = message.from_user.id
@@ -246,23 +241,19 @@ async def on_successful_payment(message: Message):
     url = data["url"]
     res = data["res"]
 
-    await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
-    try:
-        loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_youtube_video, url, res)
-        
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        if file_size_mb > 50:
-            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
-            os.remove(file_path)
-            return
+    download_url = get_browser_download_url(url)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"📥 {res}p HD videoni yuklab olish", url=download_url)]
+    ])
 
-        video_file = types.FSInputFile(file_path)
-        await message.reply_video(video=video_file, caption=PROMO_CAPTION)
-        os.remove(file_path)
-    except Exception as e:
-        logging.error(f"Xatolik: {e}")
-        await message.reply("❌ To'lovdan so'ng yuklab olishda xatolik yuz berdi.")
+    await message.answer(
+        f"⭐ <b>To'lov muvaffaqiyatli qabul qilindi!</b>\n\n"
+        f"🎬 <b>Video sifati:</b> {res}p HD\n\n"
+        f"Quyidagi tugma orqali videoni yuqori sifatda to'liq ovozi bilan brauzeringizda yuklab oling:\n\n"
+        f"{PROMO_CAPTION}",
+        reply_markup=kb,
+        parse_mode="HTML"
+    )
 
 # --- Serverni 24/7 ushlab turish ---
 async def handle_ping(request):
