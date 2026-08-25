@@ -3,6 +3,7 @@ import re
 import glob
 import asyncio
 import logging
+import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
@@ -11,7 +12,6 @@ from aiogram.types import (
     LabeledPrice, PreCheckoutQuery, Message, CallbackQuery
 )
 import yt_dlp
-from pytubefix import YouTube
 
 # ========== SOZLAMALAR (НАСТРОЙКИ) ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -30,12 +30,21 @@ LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|yo
 user_links = {}
 paid_downloads = {}
 
+# Invidious API serverlari (YouTube Shorts ni blokirovkasiz yuklash uchun)
+INVIDIOUS_INSTANCES = [
+    "https://inv.nadeko.net",
+    "https://invidious.nerdvpn.de",
+    "https://invidious.jing.rocks",
+    "https://vid.puffyan.us",
+    "https://invidious.private.coffee"
+]
+
 # --- YouTube video ID ajratib olish ---
 def extract_youtube_id(url: str) -> str:
     patterns = [
+        r'shorts\/([0-9A-Za-z_-]{11})',
         r'(?:v=|\/)([0-9A-Za-z_-]{11})',
-        r'youtu\.be\/([0-9A-Za-z_-]{11})',
-        r'shorts\/([0-9A-Za-z_-]{11})'
+        r'youtu\.be\/([0-9A-Za-z_-]{11})'
     ]
     for pattern in patterns:
         match = re.search(pattern, url)
@@ -43,12 +52,12 @@ def extract_youtube_id(url: str) -> str:
             return match.group(1)
     return ""
 
-# --- Brauzerda yuklash havolasi ---
+# --- Brauzerda yuklash havolasi (To'liq videolar uchun) ---
 def get_browser_download_url(url: str) -> str:
     video_id = extract_youtube_id(url)
     if video_id:
         return f"https://ssyoutube.com/watch?v={video_id}"
-    return f"https://cobalt.tools/?u={url}"
+    return f"https://10downloader.com/download?v={url}"
 
 # --- Kanalga obunani tekshirish ---
 async def check_subscription(user_id: int) -> bool:
@@ -65,7 +74,7 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- Instagram, TikTok va Shorts yuklovchi ---
+# --- Instagram va TikTok yuklovchi ---
 def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best") -> str:
     unique_id = os.urandom(6).hex()
     output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
@@ -90,6 +99,48 @@ def download_media(url: str, format_spec: str = "bestvideo[ext=mp4]+bestaudio[ex
     if not downloaded_files:
         raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
     return downloaded_files[0]
+
+# --- YouTube Shorts ni to'g'ridan-to'g'ri MP4 qilib yuklash ---
+async def download_youtube_shorts(url: str) -> str:
+    video_id = extract_youtube_id(url)
+    if not video_id:
+        raise ValueError("Video ID topilmadi.")
+        
+    os.makedirs("downloads", exist_ok=True)
+    temp_path = f"downloads/shorts_{os.urandom(6).hex()}.mp4"
+
+    # Invidious API orqali yuklash
+    for instance in INVIDIOUS_INSTANCES:
+        try:
+            api_url = f"{instance}/api/v1/videos/{video_id}"
+            async with aiohttp.ClientSession() as session:
+                async with session.get(api_url, timeout=7) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        streams = data.get("formatStreams", [])
+                        video_stream_url = None
+                        for s in streams:
+                            if "mp4" in s.get("type", "").lower() or "video" in s.get("type", "").lower():
+                                video_stream_url = s.get("url")
+                                break
+                        
+                        if video_stream_url:
+                            async with session.get(video_stream_url, timeout=40) as v_resp:
+                                if v_resp.status == 200:
+                                    with open(temp_path, "wb") as f:
+                                        while True:
+                                            chunk = await v_resp.content.read(1024 * 64)
+                                            if not chunk:
+                                                break
+                                            f.write(chunk)
+                                    return temp_path
+        except Exception as e:
+            logging.warning(f"Invidious {instance} xatolik: {e}")
+            continue
+
+    # Zaxira: yt-dlp
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, download_media, url, "best[ext=mp4]/best/18")
 
 # --- /start buyrug'i ---
 @dp.message(CommandStart())
@@ -123,7 +174,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Shaxsiy xabarlarda: obunani tekshirish
+    # Shaxsiy xabarlarda obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
@@ -134,7 +185,7 @@ async def handle_links(message: Message):
             return
 
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
-    is_shorts = "/shorts/" in url
+    is_shorts = ("/shorts/" in url)
 
     # 1. Agar YouTube to'liq video bo'lsa (Shorts EMAS):
     if is_youtube and not is_shorts:
@@ -152,19 +203,24 @@ async def handle_links(message: Message):
             ])
             await message.answer("🎬 YouTube videoni qaysi formatda yuklab olmoqchisiz?", reply_markup=keyboard)
         else:
-            # Guruhlarda to'g'ridan-to'g'ri brauzer havolasini yuborish
             download_url = get_browser_download_url(url)
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🌐 Videoni brauzerda yuklab olish", url=download_url)]
             ])
-            await message.reply(f"🎬 YouTube videoni yuklab olish uchun quyidagi tugmani bosing:\n\n{PROMO_CAPTION}", reply_markup=kb)
+            await message.reply(
+                f"🎬 YouTube videoni yuklab olish uchun quyidagi tugmani bosing:\n\n{PROMO_CAPTION}",
+                reply_markup=kb
+            )
         return
 
-    # 2. Instagram, TikTok yoki YouTube Shorts bo'lsa: fayl sifatida Telegramga yuklash
+    # 2. Instagram, TikTok va YouTube Shorts: Fayl sifatida Telegramga yuklash
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
-        loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_media, url)
+        if is_shorts:
+            file_path = await download_youtube_shorts(url)
+        else:
+            loop = asyncio.get_event_loop()
+            file_path = await loop.run_in_executor(None, download_media, url)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
