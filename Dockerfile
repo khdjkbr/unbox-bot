@@ -1,16 +1,15 @@
 FROM python:3.11-slim
 
-# Установка ffmpeg для видео
-RUN apt-get update && apt-get install -y ffmpeg git curl && rm -rf /var/lib/apt/lists/*
+# Установка ffmpeg и nodejs (критически необходим для работы YouTube)
+RUN apt-get update && apt-get install -y ffmpeg nodejs git curl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -U -r requirements.txt
 
 COPY . .
 
-# Порт для Render
 EXPOSE 10000
 
 CMD ["python", "bot.py"]
