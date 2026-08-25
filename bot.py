@@ -1,5 +1,6 @@
 import os
 import re
+import glob
 import asyncio
 import logging
 from aiohttp import web
@@ -43,9 +44,10 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- To'g'ridan-to'g'ri yt-dlp orqali yuklab olish (Instagram, TikTok, YouTube) ---
+# --- Aniq va ishonchli yuklab olish funksiyasi ---
 def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> str:
-    output_template = f"downloads/%(id)s_{os.urandom(4).hex()}.%(ext)s"
+    unique_id = os.urandom(6).hex()
+    output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
     
     ydl_opts = {
@@ -56,23 +58,25 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
         'no_warnings': True,
         'nocheckcertificate': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
-            'Sec-Fetch-Mode': 'navigate',
         },
         'extractor_args': {
             'youtube': {
-                'player_client': ['ios', 'android', 'web_embedded']
+                'player_client': ['android', 'ios']
             }
         }
     }
+    
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(url, download=True)
-        filename = ydl.prepare_filename(info)
-        if not filename.endswith('.mp4'):
-            filename = os.path.splitext(filename)[0] + '.mp4'
-        return filename
+        ydl.download([url])
+    
+    # Diskda aynan yaratilgan tayyor faylni topish
+    downloaded_files = glob.glob(f"downloads/{unique_id}_*")
+    if not downloaded_files:
+        raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
+    
+    return downloaded_files[0]
 
 # --- /start buyrug'i ---
 @dp.message(CommandStart())
@@ -86,7 +90,7 @@ async def cmd_start(message: Message):
                 reply_markup=get_sub_keyboard()
             )
             return
-        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring!")
+        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
 
 # --- Obunani tekshirish tugmasi ---
 @dp.callback_query(F.data == "check_sub_again")
@@ -106,7 +110,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Shaxsiy xabarlarda: obunani tekshirish
+    # Shaxsiy xabarlarda obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
@@ -132,7 +136,7 @@ async def handle_links(message: Message):
             await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    # Instagram / TikTok (yoki guruhlarda avtomatik yuklash)
+    # Instagram / TikTok (yoki guruhlarda avtomatik)
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
@@ -209,7 +213,7 @@ async def process_paid_yt(callback: CallbackQuery):
 async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# --- To'lovdan so'ng videoni to'g'ridan-to'g'ri yuborish ---
+# --- To'lovdan so'ng videoni yuborish ---
 @dp.message(F.successful_payment)
 async def on_successful_payment(message: Message):
     user_id = message.from_user.id
