@@ -2,7 +2,6 @@ import os
 import re
 import asyncio
 import logging
-import aiohttp
 from aiohttp import web
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart
@@ -44,33 +43,9 @@ def get_sub_keyboard():
         [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
-# --- To'g'ridan-to'g'ri HD yuklash havolasini olish (Cobalt API orqali) ---
-async def get_direct_download_link(url: str, quality: str) -> str:
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0"
-    }
-    payload = {
-        "url": url,
-        "vQuality": quality
-    }
-    async with aiohttp.ClientSession() as session:
-        try:
-            async with session.post("https://api.cobalt.tools/", json=payload, headers=headers, timeout=10) as resp:
-                if resp.status == 200:
-                    data = await resp.json()
-                    if "url" in data:
-                        return data["url"]
-        except Exception as e:
-            logging.error(f"Cobalt API xatolik: {e}")
-    
-    # Zaxira havola (agar API band bo'lsa)
-    return f"https://cobalt.tools/?u={url}"
-
-# --- Bepul videolarni yt-dlp orqali yuklab olish ---
+# --- To'g'ridan-to'g'ri yt-dlp orqali yuklab olish (Instagram, TikTok, YouTube) ---
 def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> str:
-    output_template = f"downloads/%(id)s_{format_spec.replace('/', '_')}.%(ext)s"
+    output_template = f"downloads/%(id)s_{os.urandom(4).hex()}.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
     
     ydl_opts = {
@@ -80,13 +55,16 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
         'quiet': True,
         'no_warnings': True,
         'nocheckcertificate': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Sec-Fetch-Mode': 'navigate',
+        },
         'extractor_args': {
             'youtube': {
                 'player_client': ['ios', 'android', 'web_embedded']
             }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.5 Mobile/15E148 Safari/604.1'
         }
     }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -149,19 +127,16 @@ async def handle_links(message: Message):
                 [
                     InlineKeyboardButton(text="⭐ 720p HD (25 ⭐️)", callback_data="yt_720"),
                     InlineKeyboardButton(text="⭐ 1080p FHD (25 ⭐️)", callback_data="yt_1080")
-                ],
-                [
-                    InlineKeyboardButton(text="⭐ 2K / 4K Ultra HD (25 ⭐️)", callback_data="yt_max")
                 ]
             ])
             await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    # Instagram / TikTok (yoki guruhlarda avtomatik)
+    # Instagram / TikTok (yoki guruhlarda avtomatik yuklash)
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_media, url, "best[ext=mp4]/best")
+        file_path = await loop.run_in_executor(None, download_media, url, "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
@@ -207,8 +182,8 @@ async def process_free_yt(callback: CallbackQuery):
         logging.error(f"Xatolik: {e}")
         await callback.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
 
-# --- Pullik YouTube (720p / 1080p / 4K - 25 Yulduz) ---
-@dp.callback_query(F.data.in_(["yt_720", "yt_1080", "yt_max"]))
+# --- Pullik YouTube (720p / 1080p - 25 Yulduz) ---
+@dp.callback_query(F.data.in_(["yt_720", "yt_1080"]))
 async def process_paid_yt(callback: CallbackQuery):
     user_id = callback.from_user.id
     url = user_links.get(user_id)
@@ -216,22 +191,15 @@ async def process_paid_yt(callback: CallbackQuery):
         await callback.answer("❌ Havola eskirgan, iltimos qaytadan yuboring.", show_alert=True)
         return
 
-    res_labels = {
-        "yt_720": "720p HD",
-        "yt_1080": "1080p Full HD",
-        "yt_max": "2K / 4K Ultra HD"
-    }
-    selected_label = res_labels.get(callback.data, "HD")
-    quality_code = "720" if callback.data == "yt_720" else ("1080" if callback.data == "yt_1080" else "max")
-    
-    paid_downloads[user_id] = {"url": url, "quality": quality_code, "label": selected_label}
+    res = "720" if callback.data == "yt_720" else "1080"
+    paid_downloads[user_id] = {"url": url, "res": res}
 
-    prices = [LabeledPrice(label=f"{selected_label} sifatda yuklash", amount=25)]
+    prices = [LabeledPrice(label=f"{res}p sifatda yuklash", amount=25)]
     await callback.message.delete()
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
-        title=f"YouTube {selected_label} yuklash",
-        description=f"Videoni yuqori sifatda ({selected_label}) to'g'ridan-to'g'ri yuklab olish havolasi.",
+        title=f"YouTube {res}p HD yuklash",
+        description=f"Videoni yuqori sifatda ({res}p) to'liq yuklab olish.",
         payload=f"yt_hd_{user_id}",
         currency="XTR",
         prices=prices
@@ -241,7 +209,7 @@ async def process_paid_yt(callback: CallbackQuery):
 async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# --- To'lovdan so'ng to'g'ridan-to'g'ri yuklash havolasini taqdim etish ---
+# --- To'lovdan so'ng videoni to'g'ridan-to'g'ri yuborish ---
 @dp.message(F.successful_payment)
 async def on_successful_payment(message: Message):
     user_id = message.from_user.id
@@ -250,24 +218,26 @@ async def on_successful_payment(message: Message):
 
     data = paid_downloads.pop(user_id)
     url = data["url"]
-    quality = data["quality"]
-    label = data["label"]
+    res = data["res"]
 
-    # To'g'ridan-to'g'ri yuklash havolasini olish
-    download_url = await get_direct_download_link(url, quality)
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+    try:
+        format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best"
+        loop = asyncio.get_event_loop()
+        file_path = await loop.run_in_executor(None, download_media, url, format_str)
+        
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
+            os.remove(file_path)
+            return
 
-    download_keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"📥 {label} videoni yuklab olish", url=download_url)]
-    ])
-
-    await message.answer(
-        f"⭐ <b>To'lov muvaffaqiyatli qabul qilindi!</b>\n\n"
-        f"🎬 <b>Video sifati:</b> {label}\n\n"
-        f"Quyidagi tugma orqali videoni to'liq sifatda (ovozli) to'g'ridan-to'g'ri qurilmangizga yuklab olishingiz mumkin:\n\n"
-        f"{PROMO_CAPTION}",
-        reply_markup=download_keyboard,
-        parse_mode="HTML"
-    )
+        video_file = types.FSInputFile(file_path)
+        await message.reply_video(video=video_file, caption=PROMO_CAPTION)
+        os.remove(file_path)
+    except Exception as e:
+        logging.error(f"Xatolik: {e}")
+        await message.reply("❌ To'lovdan so'ng yuklab olishda xatolik yuz berdi.")
 
 # --- Serverni 24/7 ushlab turish ---
 async def handle_ping(request):
