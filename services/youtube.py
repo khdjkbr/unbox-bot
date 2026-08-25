@@ -7,15 +7,7 @@ import aiohttp
 from config import RAPIDAPI_KEY
 import yt_dlp
 
-INVIDIOUS_INSTANCES = [
-    "https://inv.nadeko.net",
-    "https://invidious.nerdvpn.de",
-    "https://invidious.jing.rocks",
-    "https://vid.puffyan.us",
-    "https://invidious.private.coffee"
-]
-
-# --- 100% aniq YouTube ID ajratuvchi ---
+# --- 100% точный парсер YouTube ID (Shorts, youtu.be, watch?v=) ---
 def extract_youtube_id(url: str) -> str:
     # 1. Shorts: youtube.com/shorts/VIDEO_ID
     m = re.search(r'shorts\/([a-zA-Z0-9_-]{11})', url)
@@ -39,14 +31,14 @@ def extract_youtube_id(url: str) -> str:
         
     return ""
 
-# --- Brauzerda 100% ochiladigan havola ---
+# --- SaveFrom (ssyoutube) orqali to'g'ridan-to'g'ri yuklash havolasi ---
 def get_browser_download_url(url: str) -> str:
     video_id = extract_youtube_id(url)
     if video_id:
-        return f"https://10downloader.com/download?v=https://www.youtube.com/watch?v={video_id}"
-    return f"https://10downloader.com/download?v={url}"
+        return f"https://ssyoutube.com/watch?v={video_id}"
+    return f"https://en.savefrom.net/1-youtube-video-downloader-22wW/?url={url}"
 
-# --- 1-USUL: RapidAPI orqali yuklash ---
+# --- 1-USUL: RapidAPI orqali fayl yuklash ---
 async def try_rapidapi(url: str) -> str:
     if not RAPIDAPI_KEY:
         raise ValueError("RAPIDAPI_KEY mavjud emas")
@@ -85,43 +77,7 @@ async def try_rapidapi(url: str) -> str:
                             return temp_path
     raise Exception("RapidAPI orqali yuklab bo'lmadi")
 
-# --- 2-USUL: Invidious API orqali yuklash ---
-async def try_invidious(url: str) -> str:
-    video_id = extract_youtube_id(url)
-    if not video_id:
-        raise ValueError("Video ID topilmadi")
-    
-    temp_path = f"downloads/yt_inv_{os.urandom(6).hex()}.mp4"
-    for instance in INVIDIOUS_INSTANCES:
-        try:
-            api_url = f"{instance}/api/v1/videos/{video_id}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(api_url, timeout=6) as resp:
-                    if resp.status == 200:
-                        data = await resp.json()
-                        streams = data.get("formatStreams", [])
-                        video_stream_url = None
-                        for s in streams:
-                            if "mp4" in s.get("type", "").lower() or "video" in s.get("type", "").lower():
-                                video_stream_url = s.get("url")
-                                break
-                        
-                        if video_stream_url:
-                            async with session.get(video_stream_url, timeout=35) as v_resp:
-                                if v_resp.status == 200:
-                                    with open(temp_path, "wb") as f:
-                                        while True:
-                                            chunk = await v_resp.content.read(1024 * 64)
-                                            if not chunk:
-                                                break
-                                            f.write(chunk)
-                                    return temp_path
-        except Exception as e:
-            logging.warning(f"Invidious {instance} xatolik: {e}")
-            continue
-    raise Exception("Invidious orqali yuklab bo'lmadi")
-
-# --- 3-USUL: yt-dlp orqali yuklash ---
+# --- 2-USUL: yt-dlp orqali fayl yuklash ---
 def _try_ytdlp_sync(url: str, res: str = "720") -> str:
     unique_id = os.urandom(6).hex()
     output_template = f"downloads/yt_dlp_{unique_id}_%(id)s.%(ext)s"
@@ -156,23 +112,14 @@ async def cascade_download_youtube(url: str, res: str = "720") -> str:
 
     # 1-qadam: RapidAPI
     try:
-        logging.info("1-bosqich: RapidAPI orqali yuklanmoqda...")
         return await try_rapidapi(url)
     except Exception as e:
-        logging.warning(f"1-bosqich xatolik: {e}")
+        logging.warning(f"RapidAPI xatolik: {e}")
 
-    # 2-qadam: Invidious
+    # 2-qadam: yt-dlp
     try:
-        logging.info("2-bosqich: Invidious API orqali yuklanmoqda...")
-        return await try_invidious(url)
-    except Exception as e:
-        logging.warning(f"2-bosqich xatolik: {e}")
-
-    # 3-qadam: yt-dlp
-    try:
-        logging.info("3-bosqich: yt-dlp orqali yuklanmoqda...")
         return await try_ytdlp(url, res)
     except Exception as e:
-        logging.warning(f"3-bosqich xatolik: {e}")
+        logging.warning(f"yt-dlp xatolik: {e}")
 
     raise RuntimeError("Barcha server yuklash usullari muvaffaqiyatsiz tugadi.")
