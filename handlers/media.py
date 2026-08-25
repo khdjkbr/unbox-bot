@@ -7,7 +7,7 @@ from config import CHANNEL_USERNAME, PROMO_CAPTION
 from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
-from services.youtube import download_youtube_shorts, get_browser_download_url
+from services.youtube import cascade_download_youtube, get_browser_download_url
 from handlers.payments import user_links
 
 router = Router()
@@ -34,7 +34,7 @@ async def handle_links(message: Message):
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
     is_shorts = ("/shorts/" in url)
 
-    # 1. Agar YouTube to'liq video bo'lsa (Shorts emas):
+    # 1. Agar YouTube to'liq video bo'lsa (Shorts EMAS):
     if is_youtube and not is_shorts:
         if message.chat.type == "private":
             user_links[message.from_user.id] = url
@@ -60,11 +60,12 @@ async def handle_links(message: Message):
             )
         return
 
-    # 2. Instagram, TikTok va YouTube Shorts: Fayl sifatida yuklash
+    # 2. Instagram, TikTok va YouTube Shorts: Kaskadli yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+    file_path = None
     try:
         if is_shorts:
-            file_path = await download_youtube_shorts(url)
+            file_path = await cascade_download_youtube(url, "720")
         elif "instagram.com" in url:
             file_path = await download_instagram(url)
         else:
@@ -72,13 +73,26 @@ async def handle_links(message: Message):
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
-            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
             os.remove(file_path)
+            # 50 MB dan oshsa, to'g'ridan-to'g'ri brauzer havolasini taqdim etish
+            download_url = get_browser_download_url(url) if is_shorts else url
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🌐 Videoni brauzerda yuklab olish (50 MB+)", url=download_url)]
+            ])
+            await message.reply(f"ℹ️ Fayl 50 MB dan katta bo'lgani uchun brauzer orqali yuklang:\n\n{PROMO_CAPTION}", reply_markup=kb)
             return
 
         video_file = types.FSInputFile(file_path)
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Xatolik: {e}")
-        await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
+        logging.error(f"Yuklashda barcha usullar xatolik berdi: {e}")
+        # Agar fayl yuklab bo'lmasa, zaxira brauzer havolasini yuborish
+        if is_shorts:
+            download_url = get_browser_download_url(url)
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🌐 Shorts videoni brauzerda yuklab olish", url=download_url)]
+            ])
+            await message.reply(f"🎬 Videoni yuklab olish havolasi tayyor:\n\n{PROMO_CAPTION}", reply_markup=kb)
+        else:
+            await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
