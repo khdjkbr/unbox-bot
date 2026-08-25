@@ -15,7 +15,7 @@ import yt_dlp
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = "@unbox_uzb"
 CHANNEL_URL = "https://t.me/unbox_uzb"
-PROMO_CAPTION = "📥 Bot orqali yuklab olindi\n📢 Kanalimizga obuna bo'ling: @unbox_uzb"
+PROMO_CAPTION = "📥 @videoni_yuklaydigan_bot orqali yuklab olindi\n📢 Yanada qiziqarli ma'lumotlar bizning kanalimizda, obuna bo'ling: @unbox_uzb"
 PORT = int(os.getenv("PORT", 10000))
 # ============================================
 
