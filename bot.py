@@ -11,13 +11,13 @@ from aiogram.types import (
 )
 import yt_dlp
 
-# ========== НАСТРОЙКИ ==========
+# ========== SOZLAMALAR (НАСТРОЙКИ) ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHANNEL_USERNAME = "@unbox_uzb"
 CHANNEL_URL = "https://t.me/unbox_uzb"
-PROMO_CAPTION = "📥 Скачано через бота\n📢 Подписывайся на наш канал: @unbox_uzb"
+PROMO_CAPTION = "📥 Bot orqali yuklab olindi\n📢 Kanalimizga obuna bo'ling: @unbox_uzb"
 PORT = int(os.getenv("PORT", 10000))
-# ===============================
+# ============================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=BOT_TOKEN)
@@ -26,20 +26,22 @@ dp = Dispatcher()
 LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\S+)'
 paid_downloads = {}
 
+# --- Kanalga obunani tekshirish ---
 async def check_subscription(user_id: int) -> bool:
     try:
         member = await bot.get_chat_member(chat_id=CHANNEL_USERNAME, user_id=user_id)
         return member.status in ["member", "administrator", "creator"]
     except Exception as e:
-        logging.error(f"Ошибка проверки подписки: {e}")
+        logging.error(f"Obunani tekshirishda xatolik: {e}")
         return False
 
 def get_sub_keyboard():
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📢 Подписаться на канал", url=CHANNEL_URL)],
-        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="check_sub_again")]
+        [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=CHANNEL_URL)],
+        [InlineKeyboardButton(text="✅ Obunani tekshirish", callback_data="check_sub_again")]
     ])
 
+# --- yt-dlp orqali yuklab olish ---
 def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> str:
     output_template = f"downloads/%(id)s_{format_spec.replace('/', '_')}.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
@@ -57,28 +59,31 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
             filename = os.path.splitext(filename)[0] + '.mp4'
         return filename
 
+# --- /start buyrug'i ---
 @dp.message(CommandStart())
 async def cmd_start(message: Message):
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
             await message.answer(
-                f"👋 Привет! Чтобы пользоваться ботом для скачивания видео, "
-                f"подпишитесь на наш канал {CHANNEL_USERNAME}:",
+                f"👋 Assalomu alaykum! Botdan foydalanish va video yuklab olish uchun "
+                f"kanalimizga obuna bo'ling: {CHANNEL_USERNAME}",
                 reply_markup=get_sub_keyboard()
             )
             return
-        await message.answer("👋 Привет! Отправь мне ссылку на видео из Instagram, TikTok или YouTube!")
+        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring!")
 
+# --- Obunani tekshirish tugmasi ---
 @dp.callback_query(F.data == "check_sub_again")
 async def cb_check_sub(callback: CallbackQuery):
     is_sub = await check_subscription(callback.from_user.id)
     if is_sub:
         await callback.message.delete()
-        await callback.message.answer("✅ Отлично, подписка подтверждена! Теперь отправь ссылку на видео.")
+        await callback.message.answer("✅ Obuna tasdiqlandi! Endi video havolasini yuborishingiz mumkin.")
     else:
-        await callback.answer("❌ Вы еще не подписались на канал!", show_alert=True)
+        await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
+# --- Havolalarni qabul qilish va to'g'ridan-to'g'ri yuklash ---
 @dp.message(F.text)
 async def handle_links(message: Message):
     match = re.search(LINK_REGEX, message.text)
@@ -86,64 +91,77 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
+    # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.from_user.id)
         if not is_sub:
             await message.answer(
-                f"⚠️ Для скачивания видео необходимо быть подписанным на канал {CHANNEL_USERNAME}:",
+                f"⚠️ Videoni yuklab olish uchun avval kanalimizga a'zo bo'ling: {CHANNEL_USERNAME}",
                 reply_markup=get_sub_keyboard()
             )
             return
 
+        # YouTube bo'lsa sifat tanlash menyusi
         if "youtube.com" in url or "youtu.be" in url:
             keyboard = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="🎬 360p (Бесплатно)", callback_data=f"yt_free_360:{url}"),
-                    InlineKeyboardButton(text="🎬 480p (Бесплатно)", callback_data=f"yt_free_480:{url}")
+                    InlineKeyboardButton(text="🎬 360p (Bepul)", callback_data=f"yt_free_360:{url}"),
+                    InlineKeyboardButton(text="🎬 480p (Bepul)", callback_data=f"yt_free_480:{url}")
                 ],
                 [
                     InlineKeyboardButton(text="⭐ 720p HD (25 ⭐️)", callback_data=f"yt_paid_720:{url}"),
                     InlineKeyboardButton(text="⭐ 1080p FHD (25 ⭐️)", callback_data=f"yt_paid_1080:{url}")
                 ]
             ])
-            await message.answer("🎬 Выберите качество для загрузки с YouTube:", reply_markup=keyboard)
+            await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    status_msg = await message.reply("⏳ Скачиваю видео, пожалуйста, подождите...")
+    # Instagram / TikTok (yoki guruhlarda avtomatik yuklash)
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_media, url, "best[ext=mp4]/best")
+        
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
-            await status_msg.edit_text("❌ Файл превышает лимит Telegram (50 МБ).")
+            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
             os.remove(file_path)
             return
 
         video_file = types.FSInputFile(file_path)
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
-        await status_msg.delete()
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await status_msg.edit_text("❌ Не удалось скачать видео. Проверьте ссылку.")
+        logging.error(f"Xatolik: {e}")
+        await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
 
+# --- Bepul YouTube (360p / 480p) ---
 @dp.callback_query(F.data.startswith("yt_free_"))
 async def process_free_yt(callback: CallbackQuery):
     quality, url = callback.data.split(":", 1)
     res = "360" if "360" in quality else "480"
-    await callback.message.edit_text(f"⏳ Скачиваю YouTube в {res}p...")
+    
+    await callback.message.delete()
+    await bot.send_chat_action(chat_id=callback.message.chat.id, action="upload_video")
     try:
         format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best"
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_media, url, format_str)
+        
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            await callback.message.answer("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
+            os.remove(file_path)
+            return
+
         video_file = types.FSInputFile(file_path)
-        await callback.message.reply_video(video=video_file, caption=PROMO_CAPTION)
-        await callback.message.delete()
+        await callback.message.answer_video(video=video_file, caption=PROMO_CAPTION)
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await callback.message.edit_text("❌ Ошибка при скачивании.")
+        logging.error(f"Xatolik: {e}")
+        await callback.message.answer("❌ Yuklab olishda xatolik yuz berdi.")
 
+# --- Pullik YouTube (720p / 1080p 25 Yulduz) ---
 @dp.callback_query(F.data.startswith("yt_paid_"))
 async def process_paid_yt(callback: CallbackQuery):
     quality, url = callback.data.split(":", 1)
@@ -151,12 +169,12 @@ async def process_paid_yt(callback: CallbackQuery):
     user_id = callback.from_user.id
     paid_downloads[user_id] = {"url": url, "res": res}
 
-    prices = [LabeledPrice(label=f"Скачивание в {res}p", amount=25)]
+    prices = [LabeledPrice(label=f"{res}p sifatda yuklash", amount=25)]
     await callback.message.delete()
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
-        title=f"Загрузка YouTube в {res}p HD",
-        description=f"Скачивание выбранного видео в повышенном качестве {res}p.",
+        title=f"YouTube {res}p HD sifatda yuklash",
+        description=f"Videoni yuqori sifatda ({res}p) yuklab olish uchun to'lov.",
         payload=f"yt_hd_{user_id}",
         currency="XTR",
         prices=prices
@@ -170,34 +188,34 @@ async def on_pre_checkout(pre_checkout_query: PreCheckoutQuery):
 async def on_successful_payment(message: Message):
     user_id = message.from_user.id
     if user_id not in paid_downloads:
-        await message.answer("✅ Оплата получена! Спасибо!")
         return
 
     data = paid_downloads.pop(user_id)
     url = data["url"]
     res = data["res"]
 
-    status_msg = await message.answer(f"⭐ Оплата подтверждена! Скачиваю видео в {res}p...")
+    await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best"
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_media, url, format_str)
+        
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
-            await status_msg.edit_text("❌ Файл превышает лимит Telegram в 50 МБ.")
+            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
             os.remove(file_path)
             return
 
         video_file = types.FSInputFile(file_path)
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
-        await status_msg.delete()
         os.remove(file_path)
     except Exception as e:
-        logging.error(f"Ошибка: {e}")
-        await status_msg.edit_text("❌ Ошибка при скачивании после оплаты.")
+        logging.error(f"Xatolik: {e}")
+        await message.reply("❌ To'lovdan so'ng yuklab olishda xatolik yuz berdi.")
 
+# --- Serverni 24/7 ushlab turish ---
 async def handle_ping(request):
-    return web.Response(text="Bot is running on Render 24/7!")
+    return web.Response(text="Bot faol va 24/7 ishlamoqda!")
 
 async def start_web_server():
     app = web.Application()
@@ -209,7 +227,7 @@ async def start_web_server():
 
 async def main():
     await start_web_server()
-    print("Бот запущен на Render!")
+    print("Bot muvaffaqiyatli ishga tushirildi!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
