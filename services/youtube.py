@@ -15,22 +15,35 @@ INVIDIOUS_INSTANCES = [
     "https://invidious.private.coffee"
 ]
 
+# --- 100% aniq YouTube ID ajratuvchi ---
 def extract_youtube_id(url: str) -> str:
-    patterns = [
-        r'shorts\/([0-9A-Za-z_-]{11})',
-        r'(?:v=|\/)([0-9A-Za-z_-]{11})',
-        r'youtu\.be\/([0-9A-Za-z_-]{11})'
-    ]
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
+    # 1. Shorts: youtube.com/shorts/VIDEO_ID
+    m = re.search(r'shorts\/([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+    
+    # 2. Qisqa havola: youtu.be/VIDEO_ID
+    m = re.search(r'youtu\.be\/([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+    
+    # 3. Standart havola: watch?v=VIDEO_ID
+    m = re.search(r'[?&]v=([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+        
+    # 4. Embed havola: embed/VIDEO_ID
+    m = re.search(r'embed\/([a-zA-Z0-9_-]{11})', url)
+    if m:
+        return m.group(1)
+        
     return ""
 
+# --- Brauzerda 100% ochiladigan havola ---
 def get_browser_download_url(url: str) -> str:
     video_id = extract_youtube_id(url)
     if video_id:
-        return f"https://ssyoutube.com/watch?v={video_id}"
+        return f"https://10downloader.com/download?v=https://www.youtube.com/watch?v={video_id}"
     return f"https://10downloader.com/download?v={url}"
 
 # --- 1-USUL: RapidAPI orqali yuklash ---
@@ -139,11 +152,6 @@ async def try_ytdlp(url: str, res: str = "720") -> str:
 
 # --- BOSQICHMA-BOSQICH KASKAD YUKLOVCHI ---
 async def cascade_download_youtube(url: str, res: str = "720") -> str:
-    """
-    Ketma-ket barcha variantlarni tekshiradi:
-    1. RapidAPI -> 2. Invidious -> 3. yt-dlp.
-    Birinchi ishlagan variantda to'xtaydi.
-    """
     os.makedirs("downloads", exist_ok=True)
 
     # 1-qadam: RapidAPI
@@ -151,20 +159,20 @@ async def cascade_download_youtube(url: str, res: str = "720") -> str:
         logging.info("1-bosqich: RapidAPI orqali yuklanmoqda...")
         return await try_rapidapi(url)
     except Exception as e:
-        logging.warning(f"1-bosqich o'xshamadi: {e}")
+        logging.warning(f"1-bosqich xatolik: {e}")
 
     # 2-qadam: Invidious
     try:
         logging.info("2-bosqich: Invidious API orqali yuklanmoqda...")
         return await try_invidious(url)
     except Exception as e:
-        logging.warning(f"2-bosqich o'xshamadi: {e}")
+        logging.warning(f"2-bosqich xatolik: {e}")
 
     # 3-qadam: yt-dlp
     try:
         logging.info("3-bosqich: yt-dlp orqali yuklanmoqda...")
         return await try_ytdlp(url, res)
     except Exception as e:
-        logging.warning(f"3-bosqich o'xshamadi: {e}")
+        logging.warning(f"3-bosqich xatolik: {e}")
 
     raise RuntimeError("Barcha server yuklash usullari muvaffaqiyatsiz tugadi.")
