@@ -63,7 +63,7 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
         },
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios']
+                'player_client': ['tv_embedded', 'web_embedded', 'mweb']
             }
         }
     }
@@ -71,7 +71,6 @@ def download_media(url: str, format_spec: str = "bestvideo+bestaudio/best") -> s
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     
-    # Diskda aynan yaratilgan tayyor faylni topish
     downloaded_files = glob.glob(f"downloads/{unique_id}_*")
     if not downloaded_files:
         raise FileNotFoundError("Yuklangan fayl diskda topilmadi.")
@@ -98,7 +97,7 @@ async def cb_check_sub(callback: CallbackQuery):
     is_sub = await check_subscription(callback.from_user.id)
     if is_sub:
         await callback.message.delete()
-        await callback.message.answer("✅ Obuna tasdiqlandi! Endi video havolasini yuborishingiz mumkin.")
+        await callback.message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
     else:
         await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
 
@@ -136,11 +135,13 @@ async def handle_links(message: Message):
             await message.answer("🎬 YouTube videoni qaysi sifatda yuklab olmoqchisiz?", reply_markup=keyboard)
             return
 
-    # Instagram / TikTok (yoki guruhlarda avtomatik)
+    # Instagram / TikTok yoki guruhlarda avtomatik
     await bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         loop = asyncio.get_event_loop()
-        file_path = await loop.run_in_executor(None, download_media, url, "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best")
+        # Guruhlarda va Instagram/TikTok uchun eng mos format
+        format_spec = "bestvideo[height<=720]+bestaudio/best[height<=720]/best" if ("youtube.com" in url or "youtu.be" in url) else "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
+        file_path = await loop.run_in_executor(None, download_media, url, format_spec)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
@@ -169,7 +170,7 @@ async def process_free_yt(callback: CallbackQuery):
     await bot.send_chat_action(chat_id=callback.message.chat.id, action="upload_video")
     
     try:
-        format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best"
+        format_str = f"bestvideo[height<={res}]+bestaudio/best[height<={res}]/best/18/best"
         loop = asyncio.get_event_loop()
         file_path = await loop.run_in_executor(None, download_media, url, format_str)
         
