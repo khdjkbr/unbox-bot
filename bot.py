@@ -71,7 +71,7 @@ async def cmd_start(message: Message):
                 reply_markup=get_sub_keyboard()
             )
             return
-        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring!")
+        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok yoki YouTube havolasini yuboring, men mediafayllarni shu yerga yuklab beraman!")
 
 # --- Obunani tekshirish tugmasi ---
 @dp.callback_query(F.data == "check_sub_again")
