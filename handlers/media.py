@@ -13,11 +13,11 @@ from services.database import add_user, increment_download, get_user_and_global_
 
 router = Router()
 
-# Instagram, TikTok, YouTube va Facebook havolalarini ushlovchi regex
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch)[^\s]*)'
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
 async def send_stats_post(message: Message, user_id: int):
+    # Guruhlarga yuborilmaydi, faqat shaxsiy yozishmada (lichkada) chiqadi
     if message.chat.type != "private":
         return
 
@@ -44,13 +44,17 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Foydalanuvchini bazaga qo'shish
-    if message.from_user:
-        add_user(message.from_user.id, message.from_user.username)
+    # Foydalanuvchini aniqlash (guruhda ham, lichkada ham ishlaydi)
+    user_id = message.from_user.id if message.from_user else (message.sender_chat.id if message.sender_chat else 0)
+    username = message.from_user.username if message.from_user else (message.sender_chat.title if message.sender_chat else "")
+
+    # Barcha foydalanuvchilarni (guruhdagilarni ham) global bazaga qo'shish
+    if user_id:
+        add_user(user_id, username)
 
     # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
-        is_sub = await check_subscription(message.bot, message.from_user.id)
+        is_sub = await check_subscription(message.bot, user_id)
         if not is_sub:
             await message.answer(
                 f"⚠️ Videoni yuklab olish uchun avval kanalimizga a'zo bo'ling: {CHANNEL_USERNAME}",
@@ -62,7 +66,8 @@ async def handle_links(message: Message):
 
     # 1. YouTube havolalari: SaveFrom havolasi
     if is_youtube:
-        increment_download(message.from_user.id)
+        if user_id:
+            increment_download(user_id)
         download_url = get_browser_download_url(url)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📥 Videoni yuklab olish (SaveFrom)", url=download_url)]
@@ -74,7 +79,8 @@ async def handle_links(message: Message):
             f"{PROMO_CAPTION}"
         )
         await message.reply(text, reply_markup=kb, parse_mode="HTML")
-        await send_stats_post(message, message.from_user.id)
+        if user_id:
+            await send_stats_post(message, user_id)
         return
 
     # 2. Instagram, TikTok va Facebook: Faylni Telegramga yuklash
@@ -95,11 +101,13 @@ async def handle_links(message: Message):
 
         video_file = types.FSInputFile(file_path)
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
-        increment_download(message.from_user.id)
+        if user_id:
+            increment_download(user_id)
         os.remove(file_path)
         
-        # Statistikani yuborish (faqat lichkada)
-        await send_stats_post(message, message.from_user.id)
+        # Statistikani yuborish (faqat lichkada chiqadi)
+        if user_id:
+            await send_stats_post(message, user_id)
     except Exception as e:
         logging.error(f"Xatolik: {e}")
         await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
