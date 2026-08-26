@@ -14,8 +14,12 @@ router = Router()
 
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
 
-# Shaxsiy va umumiy statistikani alohida post qilib yuborish
+# Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
 async def send_stats_post(message: Message, user_id: int):
+    # Agar guruhda bo'lsa — statistikani yubormaymiz
+    if message.chat.type != "private":
+        return
+
     try:
         stats = get_user_and_global_stats(user_id)
         stats_text = (
@@ -91,7 +95,7 @@ async def handle_links(message: Message):
         increment_download(message.from_user.id)
         os.remove(file_path)
         
-        # Alohida post bilan statistikani yuborish
+        # Statistikani yuborish (faqat lichkada ishlaydi)
         await send_stats_post(message, message.from_user.id)
     except Exception as e:
         logging.error(f"Xatolik: {e}")
