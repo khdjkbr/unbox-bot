@@ -3,7 +3,7 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN, PORT
-from handlers import start, payments, media
+from handlers import start, media
 
 logging.basicConfig(level=logging.INFO)
 
@@ -12,7 +12,6 @@ dp = Dispatcher()
 
 # Routerlarni ro'yxatdan o'tkazish
 dp.include_router(start.router)
-dp.include_router(payments.router)
 dp.include_router(media.router)
 
 async def handle_ping(request):
