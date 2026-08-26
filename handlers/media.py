@@ -11,7 +11,8 @@ from services.youtube import get_browser_download_url
 
 router = Router()
 
-LINK_REGEX = r'(https?://(?:www\.)?(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)\S+)'
+# Har qanday mobil va to'liq havolalarni (vm.tiktok.com, vt.tiktok.com, youtu.be va boshqalar) ushlovchi regex
+LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
 
 @router.message(F.text)
 async def handle_links(message: Message):
@@ -20,7 +21,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Shaxsiy xabarlarda obunani tekshirish
+    # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.bot, message.from_user.id)
         if not is_sub:
@@ -32,7 +33,7 @@ async def handle_links(message: Message):
 
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
 
-    # 1. YouTube havolalari uchun to'g'ridan-to'g'ri SaveFrom havolasi
+    # 1. YouTube havolalari uchun SaveFrom orqali to'g'ridan-to'g'ri havola
     if is_youtube:
         download_url = get_browser_download_url(url)
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -50,10 +51,10 @@ async def handle_links(message: Message):
     # 2. Instagram va TikTok uchun faylni Telegramga yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
-        if "instagram.com" in url:
-            file_path = await download_instagram(url)
-        else:
+        if "tiktok.com" in url:
             file_path = await download_tiktok(url)
+        else:
+            file_path = await download_instagram(url)
         
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
