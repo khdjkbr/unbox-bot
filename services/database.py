@@ -22,17 +22,23 @@ def init_db():
         conn.commit()
 
 def add_user(user_id: int, username: str = None):
+    if not user_id:
+        return
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
         today = datetime.now().strftime("%Y-%m-%d")
         cursor.execute('''
-            INSERT OR IGNORE INTO users (user_id, username, joined_at, downloads_count)
+            INSERT INTO users (user_id, username, joined_at, downloads_count)
             VALUES (?, ?, ?, 0)
+            ON CONFLICT(user_id) DO UPDATE SET
+            username = COALESCE(excluded.username, users.username)
         ''', (user_id, username or "", today))
         conn.commit()
 
 def increment_download(user_id: int):
+    if not user_id:
+        return
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -53,11 +59,11 @@ def get_user_and_global_stats(user_id: int):
         user_row = cursor.fetchone()
         user_downloads = user_row[0] if user_row else 1
         
-        # Jami foydalanuvchilar
+        # Jami barcha foydalanuvchilar (guruhdagilar + lichkadagilar)
         cursor.execute('SELECT COUNT(*) FROM users')
         total_users = cursor.fetchone()[0]
 
-        # Jami yuklab olishlar
+        # Jami barcha yuklab olishlar
         cursor.execute('SELECT SUM(downloads_count) FROM users')
         row = cursor.fetchone()
         total_downloads = row[0] if (row and row[0] is not None) else 0
