@@ -19,13 +19,13 @@ async def cmd_start(message: Message):
                 reply_markup=get_sub_keyboard()
             )
             return
-        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok, Facebook yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
+        await message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok, Facebook, Twitter (X) yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
 
 @router.callback_query(F.data == "check_sub_again")
 async def cb_check_sub(callback: CallbackQuery):
     is_sub = await check_subscription(callback.bot, callback.from_user.id)
     if is_sub:
         await callback.message.delete()
-        await callback.message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok, Facebook yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
+        await callback.message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok, Facebook, Twitter (X) yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
     else:
         await callback.answer("❌ Siz hali kanalga obuna bo'lmadingiz!", show_alert=True)
