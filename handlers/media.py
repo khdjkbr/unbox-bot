@@ -7,16 +7,17 @@ from config import CHANNEL_USERNAME, PROMO_CAPTION
 from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
+from services.facebook import download_facebook
 from services.youtube import get_browser_download_url
 from services.database import add_user, increment_download, get_user_and_global_stats
 
 router = Router()
 
-LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
+# Instagram, TikTok, YouTube va Facebook havolalarini ushlovchi regex
+LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch)[^\s]*)'
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
 async def send_stats_post(message: Message, user_id: int):
-    # Agar guruhda bo'lsa — statistikani yubormaymiz
     if message.chat.type != "private":
         return
 
@@ -76,11 +77,13 @@ async def handle_links(message: Message):
         await send_stats_post(message, message.from_user.id)
         return
 
-    # 2. Instagram va TikTok: Faylni Telegramga yuklash
+    # 2. Instagram, TikTok va Facebook: Faylni Telegramga yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         if "tiktok.com" in url:
             file_path = await download_tiktok(url)
+        elif "facebook.com" in url or "fb.watch" in url:
+            file_path = await download_facebook(url)
         else:
             file_path = await download_instagram(url)
         
@@ -95,7 +98,7 @@ async def handle_links(message: Message):
         increment_download(message.from_user.id)
         os.remove(file_path)
         
-        # Statistikani yuborish (faqat lichkada ishlaydi)
+        # Statistikani yuborish (faqat lichkada)
         await send_stats_post(message, message.from_user.id)
     except Exception as e:
         logging.error(f"Xatolik: {e}")
