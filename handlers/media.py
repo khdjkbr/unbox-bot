@@ -8,16 +8,17 @@ from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
 from services.facebook import download_facebook
+from services.twitter import download_twitter
 from services.youtube import get_browser_download_url
 from services.database import add_user, increment_download, get_user_and_global_stats
 
 router = Router()
 
-LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch)[^\s]*)'
+# Instagram, TikTok, YouTube, Facebook va Twitter (X) havolalarini ushlovchi regex
+LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch|twitter\.com|x\.com)[^\s]*)'
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
 async def send_stats_post(message: Message, user_id: int):
-    # Guruhlarga yuborilmaydi, faqat shaxsiy yozishmada (lichkada) chiqadi
     if message.chat.type != "private":
         return
 
@@ -44,11 +45,10 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Foydalanuvchini aniqlash (guruhda ham, lichkada ham ishlaydi)
+    # Foydalanuvchini bazaga qo'shish
     user_id = message.from_user.id if message.from_user else (message.sender_chat.id if message.sender_chat else 0)
     username = message.from_user.username if message.from_user else (message.sender_chat.title if message.sender_chat else "")
 
-    # Barcha foydalanuvchilarni (guruhdagilarni ham) global bazaga qo'shish
     if user_id:
         add_user(user_id, username)
 
@@ -83,13 +83,15 @@ async def handle_links(message: Message):
             await send_stats_post(message, user_id)
         return
 
-    # 2. Instagram, TikTok va Facebook: Faylni Telegramga yuklash
+    # 2. Instagram, TikTok, Facebook va Twitter (X): Faylni Telegramga yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         if "tiktok.com" in url:
             file_path = await download_tiktok(url)
         elif "facebook.com" in url or "fb.watch" in url:
             file_path = await download_facebook(url)
+        elif "twitter.com" in url or "x.com" in url:
+            file_path = await download_twitter(url)
         else:
             file_path = await download_instagram(url)
         
@@ -105,7 +107,7 @@ async def handle_links(message: Message):
             increment_download(user_id)
         os.remove(file_path)
         
-        # Statistikani yuborish (faqat lichkada chiqadi)
+        # Statistikani yuborish (faqat lichkada)
         if user_id:
             await send_stats_post(message, user_id)
     except Exception as e:
