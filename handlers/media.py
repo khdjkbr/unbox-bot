@@ -8,11 +8,28 @@ from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
 from services.youtube import get_browser_download_url
-from services.database import add_user, increment_download
+from services.database import add_user, increment_download, get_user_and_global_stats
 
 router = Router()
 
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
+
+# Shaxsiy va umumiy statistikani alohida post qilib yuborish
+async def send_stats_post(message: Message, user_id: int):
+    try:
+        stats = get_user_and_global_stats(user_id)
+        stats_text = (
+            "📊 <b>Foydalanish statistikasi:</b>\n\n"
+            f"👤 <b>Sizning faolligingiz:</b>\n"
+            f"📥 Yuklab olgan videolaringiz: <b>{stats['user_downloads']} ta</b>\n\n"
+            f"🌐 <b>Umumiy bot statistikasi:</b>\n"
+            f"👥 Jami foydalanuvchilar: <b>{stats['total_users']} ta</b>\n"
+            f"🚀 Jami yuklab olishlar: <b>{stats['total_downloads']} ta</b>\n\n"
+            f"📢 <i>Kanalimizga a'zo bo'ling:</i> @unbox_uzb"
+        )
+        await message.answer(stats_text, parse_mode="HTML")
+    except Exception as e:
+        logging.error(f"Statistika yuborishda xatolik: {e}")
 
 @router.message(F.text | F.caption)
 async def handle_links(message: Message):
@@ -22,7 +39,7 @@ async def handle_links(message: Message):
         return
     url = match.group(0)
 
-    # Foydalanuvchini bazaga saqlash
+    # Foydalanuvchini bazaga qo'shish
     if message.from_user:
         add_user(message.from_user.id, message.from_user.username)
 
@@ -38,7 +55,7 @@ async def handle_links(message: Message):
 
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
 
-    # 1. YouTube: SaveFrom havolasi
+    # 1. YouTube havolalari: SaveFrom havolasi
     if is_youtube:
         increment_download(message.from_user.id)
         download_url = get_browser_download_url(url)
@@ -52,6 +69,7 @@ async def handle_links(message: Message):
             f"{PROMO_CAPTION}"
         )
         await message.reply(text, reply_markup=kb, parse_mode="HTML")
+        await send_stats_post(message, message.from_user.id)
         return
 
     # 2. Instagram va TikTok: Faylni Telegramga yuklash
@@ -72,6 +90,9 @@ async def handle_links(message: Message):
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
         increment_download(message.from_user.id)
         os.remove(file_path)
+        
+        # Alohida post bilan statistikani yuborish
+        await send_stats_post(message, message.from_user.id)
     except Exception as e:
         logging.error(f"Xatolik: {e}")
         await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
