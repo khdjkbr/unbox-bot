@@ -43,21 +43,42 @@ def increment_download(user_id: int):
         ''', (user_id,))
         conn.commit()
 
-def get_stats():
+def get_user_and_global_stats(user_id: int):
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
         
-        # Jami foydalanuvchilar soni
+        # Foydalanuvchining shaxsiy yuklab olishlari
+        cursor.execute('SELECT downloads_count FROM users WHERE user_id = ?', (user_id,))
+        user_row = cursor.fetchone()
+        user_downloads = user_row[0] if user_row else 1
+        
+        # Jami foydalanuvchilar
         cursor.execute('SELECT COUNT(*) FROM users')
         total_users = cursor.fetchone()[0]
 
-        # Bugun qo'shilganlar soni
+        # Jami yuklab olishlar
+        cursor.execute('SELECT SUM(downloads_count) FROM users')
+        row = cursor.fetchone()
+        total_downloads = row[0] if (row and row[0] is not None) else 0
+
+        return {
+            "user_downloads": user_downloads,
+            "total_users": total_users,
+            "total_downloads": total_downloads
+        }
+
+def get_stats():
+    init_db()
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute('SELECT COUNT(*) FROM users')
+        total_users = cursor.fetchone()[0]
+
         today = datetime.now().strftime("%Y-%m-%d")
         cursor.execute('SELECT COUNT(*) FROM users WHERE joined_at = ?', (today,))
         today_users = cursor.fetchone()[0]
 
-        # Jami yuklab olishlar soni
         cursor.execute('SELECT SUM(downloads_count) FROM users')
         row = cursor.fetchone()
         total_downloads = row[0] if (row and row[0] is not None) else 0
