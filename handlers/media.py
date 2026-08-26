@@ -11,12 +11,13 @@ from services.youtube import get_browser_download_url
 
 router = Router()
 
-# Har qanday mobil va to'liq havolalarni (vm.tiktok.com, vt.tiktok.com, youtu.be va boshqalar) ushlovchi regex
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
 
-@router.message(F.text)
+# Matn yoki tavsif (caption) bilan kelgan xabarlarni ushlash
+@router.message(F.text | F.caption)
 async def handle_links(message: Message):
-    match = re.search(LINK_REGEX, message.text)
+    content = message.text or message.caption or ""
+    match = re.search(LINK_REGEX, content)
     if not match:
         return
     url = match.group(0)
@@ -33,7 +34,7 @@ async def handle_links(message: Message):
 
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
 
-    # 1. YouTube havolalari uchun SaveFrom orqali to'g'ridan-to'g'ri havola
+    # 1. YouTube: SaveFrom orqali to'g'ridan-to'g'ri havola
     if is_youtube:
         download_url = get_browser_download_url(url)
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -48,7 +49,7 @@ async def handle_links(message: Message):
         await message.reply(text, reply_markup=kb, parse_mode="HTML")
         return
 
-    # 2. Instagram va TikTok uchun faylni Telegramga yuklash
+    # 2. Instagram va TikTok: Fayl sifatida Telegramga yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         if "tiktok.com" in url:
