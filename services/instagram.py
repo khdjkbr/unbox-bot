@@ -5,11 +5,11 @@ import yt_dlp
 
 def _download_instagram_sync(url: str) -> str:
     unique_id = os.urandom(6).hex()
-    output_template = f"downloads/{unique_id}_%(id)s.%(ext)s"
+    output_template = f"downloads/ig_{unique_id}_%(id)s.%(ext)s"
     os.makedirs("downloads", exist_ok=True)
     
     ydl_opts = {
-        'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best',
+        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'quiet': True,
@@ -23,7 +23,7 @@ def _download_instagram_sync(url: str) -> str:
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     
-    downloaded_files = glob.glob(f"downloads/{unique_id}_*")
+    downloaded_files = glob.glob(f"downloads/ig_{unique_id}_*")
     if not downloaded_files:
         raise FileNotFoundError("Instagram video yuklanmadi.")
     return downloaded_files[0]
