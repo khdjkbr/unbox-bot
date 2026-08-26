@@ -3,14 +3,16 @@ import logging
 from aiohttp import web
 from aiogram import Bot, Dispatcher
 from config import BOT_TOKEN, PORT
-from handlers import start, media
+from services.database import init_db
+from handlers import start, media, admin
 
 logging.basicConfig(level=logging.INFO)
 
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# Routerlarni ro'yxatdan o'tkazish
+# Routerlarni ulash
+dp.include_router(admin.router)
 dp.include_router(start.router)
 dp.include_router(media.router)
 
@@ -26,6 +28,7 @@ async def start_web_server():
     await site.start()
 
 async def main():
+    init_db()  # Bazani ishga tushirish
     await start_web_server()
     print("Bot muvaffaqiyatli ishga tushirildi!")
     await dp.start_polling(bot)
