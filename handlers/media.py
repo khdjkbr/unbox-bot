@@ -8,12 +8,12 @@ from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
 from services.youtube import get_browser_download_url
+from services.database import add_user, increment_download
 
 router = Router()
 
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be)[^\s]*)'
 
-# Matn yoki tavsif (caption) bilan kelgan xabarlarni ushlash
 @router.message(F.text | F.caption)
 async def handle_links(message: Message):
     content = message.text or message.caption or ""
@@ -21,6 +21,10 @@ async def handle_links(message: Message):
     if not match:
         return
     url = match.group(0)
+
+    # Foydalanuvchini bazaga saqlash
+    if message.from_user:
+        add_user(message.from_user.id, message.from_user.username)
 
     # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
@@ -34,8 +38,9 @@ async def handle_links(message: Message):
 
     is_youtube = ("youtube.com" in url or "youtu.be" in url)
 
-    # 1. YouTube: SaveFrom orqali to'g'ridan-to'g'ri havola
+    # 1. YouTube: SaveFrom havolasi
     if is_youtube:
+        increment_download(message.from_user.id)
         download_url = get_browser_download_url(url)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="📥 Videoni yuklab olish (SaveFrom)", url=download_url)]
@@ -49,7 +54,7 @@ async def handle_links(message: Message):
         await message.reply(text, reply_markup=kb, parse_mode="HTML")
         return
 
-    # 2. Instagram va TikTok: Fayl sifatida Telegramga yuklash
+    # 2. Instagram va TikTok: Faylni Telegramga yuklash
     await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
     try:
         if "tiktok.com" in url:
@@ -65,6 +70,7 @@ async def handle_links(message: Message):
 
         video_file = types.FSInputFile(file_path)
         await message.reply_video(video=video_file, caption=PROMO_CAPTION)
+        increment_download(message.from_user.id)
         os.remove(file_path)
     except Exception as e:
         logging.error(f"Xatolik: {e}")
