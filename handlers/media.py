@@ -11,6 +11,7 @@ from services.facebook import download_facebook
 from services.twitter import download_twitter
 from services.youtube import get_browser_download_url
 from services.database import add_user, increment_download, get_user_and_global_stats
+from services.converter import convert_for_ios
 
 router = Router()
 
@@ -95,6 +96,9 @@ async def handle_links(message: Message):
         else:
             file_path = await download_instagram(url)
         
+        # iPhone (iOS) uchun videoni H.264 + AAC formatiga optimallashtirish
+        file_path = convert_for_ios(file_path)
+
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
         if file_size_mb > 50:
             await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
@@ -102,7 +106,11 @@ async def handle_links(message: Message):
             return
 
         video_file = types.FSInputFile(file_path)
-        await message.reply_video(video=video_file, caption=PROMO_CAPTION)
+        await message.reply_video(
+            video=video_file, 
+            caption=PROMO_CAPTION,
+            supports_streaming=True  # iOS da oqimli (darhol) ijro etish
+        )
         if user_id:
             increment_download(user_id)
         os.remove(file_path)
