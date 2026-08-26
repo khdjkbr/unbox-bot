@@ -22,6 +22,7 @@ def init_db():
         conn.commit()
 
 def add_user(user_id: int, username: str = None):
+    init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
         today = datetime.now().strftime("%Y-%m-%d")
@@ -32,6 +33,7 @@ def add_user(user_id: int, username: str = None):
         conn.commit()
 
 def increment_download(user_id: int):
+    init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -42,20 +44,23 @@ def increment_download(user_id: int):
         conn.commit()
 
 def get_stats():
+    init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
-        # Jami foydalanuvchilar
+        
+        # Jami foydalanuvchilar soni
         cursor.execute('SELECT COUNT(*) FROM users')
         total_users = cursor.fetchone()[0]
 
-        # Bugun qo'shilganlar
+        # Bugun qo'shilganlar soni
         today = datetime.now().strftime("%Y-%m-%d")
         cursor.execute('SELECT COUNT(*) FROM users WHERE joined_at = ?', (today,))
         today_users = cursor.fetchone()[0]
 
-        # Jami yuklab olishlar
+        # Jami yuklab olishlar soni
         cursor.execute('SELECT SUM(downloads_count) FROM users')
-        total_downloads = cursor.fetchone()[0] or 0
+        row = cursor.fetchone()
+        total_downloads = row[0] if (row and row[0] is not None) else 0
 
         return {
             "total_users": total_users,
