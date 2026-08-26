@@ -3,12 +3,14 @@ from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
 from config import CHANNEL_USERNAME
 from services.subscription import check_subscription, get_sub_keyboard
+from services.database import add_user
 
 router = Router()
 
 @router.message(CommandStart())
 async def cmd_start(message: Message):
     if message.chat.type == "private":
+        add_user(message.from_user.id, message.from_user.username)
         is_sub = await check_subscription(message.bot, message.from_user.id)
         if not is_sub:
             await message.answer(
