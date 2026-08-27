@@ -58,7 +58,7 @@ def _download_instagram_ytdlp(url: str) -> str:
     os.makedirs("downloads", exist_ok=True)
     
     ydl_opts = {
-        'format': 'bestvideo[height<=720][ext=mp4]+bestaudio[ext=m4a]/best[height<=720][ext=mp4]/best',
+        'format': 'best[ext=mp4]/bestvideo[ext=mp4]+bestaudio[ext=m4a]/best',
         'outtmpl': output_template,
         'merge_output_format': 'mp4',
         'quiet': True,
@@ -78,12 +78,12 @@ def _download_instagram_ytdlp(url: str) -> str:
     return downloaded_files[0]
 
 async def download_instagram(url: str) -> str:
-    # 1. Agar Stories bo'lsa yoki RapidAPI bor bo'lsa — avval API orqali sinab ko'ramiz
-    if "/stories/" in url or RAPIDAPI_KEY:
+    # 1. Agar RapidAPI kaliti bo'lsa — avval API orqali sinab ko'ramiz
+    if RAPIDAPI_KEY:
         try:
             return await _download_instagram_rapidapi(url)
         except Exception as e:
-            logging.warning(f"Instagram Stories API xatolik: {e}")
+            logging.warning(f"Instagram RapidAPI xatolik: {e}")
 
     # 2. Zaxira: yt-dlp
     loop = asyncio.get_event_loop()
