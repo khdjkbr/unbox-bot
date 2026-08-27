@@ -15,7 +15,6 @@ from services.converter import convert_for_ios
 
 router = Router()
 
-# Instagram, TikTok, YouTube, Facebook va Twitter (X) havolalarini ushlovchi regex
 LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch|twitter\.com|x\.com)[^\s]*)'
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
@@ -96,21 +95,27 @@ async def handle_links(message: Message):
         else:
             file_path = await download_instagram(url)
         
-        # iPhone (iOS) uchun videoni H.264 + AAC formatiga optimallashtirish
-        file_path = convert_for_ios(file_path)
+        # Agar rasm (foto-stories) bo'lsa:
+        if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
+            photo_file = types.FSInputFile(file_path)
+            await message.reply_photo(photo=photo_file, caption=PROMO_CAPTION)
+        else:
+            # Agar video bo'lsa: iPhone uchun H.264 formatlash
+            file_path = convert_for_ios(file_path)
 
-        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        if file_size_mb > 50:
-            await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
-            os.remove(file_path)
-            return
+            file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+            if file_size_mb > 50:
+                await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
+                os.remove(file_path)
+                return
 
-        video_file = types.FSInputFile(file_path)
-        await message.reply_video(
-            video=video_file, 
-            caption=PROMO_CAPTION,
-            supports_streaming=True  # iOS da oqimli (darhol) ijro etish
-        )
+            video_file = types.FSInputFile(file_path)
+            await message.reply_video(
+                video=video_file, 
+                caption=PROMO_CAPTION,
+                supports_streaming=True
+            )
+
         if user_id:
             increment_download(user_id)
         os.remove(file_path)
