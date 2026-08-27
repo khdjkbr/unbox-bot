@@ -5,8 +5,8 @@ import gc
 
 def convert_for_ios(input_path: str) -> str:
     """
-    iPhone (iOS) da qotib qolishni (rasm to'xtab, ovoz ketishini) 
-    100% bartaraf etuvchi barqaror H.264 + AAC + CFR (30fps) konvertatsiya.
+    Asl proporsiyani (9:16 vertikal, 16:9 gorizontal, 1:1 kvadrat) 100% buzmasdan saqlaydi
+    va iPhone (iOS) hamda barcha smartfonlarda muammosiz ijro etilishini ta'minlaydi.
     """
     if not input_path or not os.path.exists(input_path):
         return input_path
@@ -15,19 +15,16 @@ def convert_for_ios(input_path: str) -> str:
 
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
-        "-vf", "scale=w='min(720,trunc(iw/2)*2)':h='trunc(ih/2)*2':force_original_aspect_ratio=decrease,pad='ceil(iw/2)*2':'ceil(ih/2)*2'",
+        "-vf", "scale='trunc(min(720,iw)/2)*2':-2",  # Asl proporsiyani saqlaydi, 1:1 ga o'zgartirmaydi
         "-c:v", "libx264",
         "-profile:v", "main",
         "-level", "3.1",
         "-preset", "veryfast",
         "-crf", "24",
-        "-r", "30",                         # Qotib qolmasligi uchun kadrlar chastotasini 30 fps ga tekislash
-        "-g", "60",                         # Har 2 soniyada tayanch kadr (GOP keyframe)
         "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         "-b:a", "128k",
-        "-ar", "44100",
-        "-threads", "1",                    # RAM to'lib ketmasligi uchun 1 oqim
+        "-threads", "1",
         "-movflags", "+faststart",
         output_path
     ]
