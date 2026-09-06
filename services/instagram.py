@@ -54,7 +54,12 @@ async def _download_instagram_looter(url: str) -> str:
     """Fallback API. It returns metadata; recursively find the first media URL."""
     if not RAPIDAPI_FALLBACK_KEY:
         raise ValueError("RAPIDAPI_FALLBACK_KEY mavjud emas")
-    endpoint = "https://instagram-looter2.p.rapidapi.com/post"
+    # post-dl is designed to return a direct media URL (including CDN URLs
+    # without a file extension); keep /post as a compatibility fallback.
+    endpoints = [
+        "https://instagram-looter2.p.rapidapi.com/post-dl",
+        "https://instagram-looter2.p.rapidapi.com/post",
+    ]
     headers = {"x-rapidapi-key": RAPIDAPI_FALLBACK_KEY,
                "x-rapidapi-host": "instagram-looter2.p.rapidapi.com"}
     shortcode = (re.search(r"/(?:reel|p|tv)/([^/?#]+)", url) or [None, None])[1]
@@ -63,6 +68,7 @@ async def _download_instagram_looter(url: str) -> str:
         attempts.append({"shortcode": shortcode})
     data = None
     async with aiohttp.ClientSession() as session:
+      for endpoint in endpoints:
         for params in attempts:
             logging.info("Instagram Looter запрос: params=%s", list(params))
             async with session.get(endpoint, params=params, headers=headers, timeout=20) as resp:
@@ -77,6 +83,8 @@ async def _download_instagram_looter(url: str) -> str:
                         break
                 elif resp.status not in (400, 404):
                     raise RuntimeError(f"Instagram Looter HTTP {resp.status}")
+        if data:
+            break
     if data is None:
         raise RuntimeError("Instagram Looter не вернул данные")
     media_url = _find_media_url(data)
