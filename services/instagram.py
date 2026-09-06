@@ -2,6 +2,7 @@ from services.http_download import save_response
 import os
 import logging
 import aiohttp
+import re
 from config import RAPIDAPI_KEY, RAPIDAPI_FALLBACK_KEY
 from services.downloader import download_media
 
@@ -56,11 +57,28 @@ async def _download_instagram_looter(url: str) -> str:
     endpoint = "https://instagram-looter2.p.rapidapi.com/post"
     headers = {"x-rapidapi-key": RAPIDAPI_FALLBACK_KEY,
                "x-rapidapi-host": "instagram-looter2.p.rapidapi.com"}
+    shortcode = (re.search(r"/(?:reel|p|tv)/([^/?#]+)", url) or [None, None])[1]
+    attempts = [{"url": url}]
+    if shortcode:
+        attempts.append({"shortcode": shortcode})
+    data = None
     async with aiohttp.ClientSession() as session:
-        async with session.get(endpoint, params={"url": url}, headers=headers, timeout=20) as resp:
-            if resp.status != 200:
-                raise RuntimeError(f"Instagram Looter HTTP {resp.status}")
-            data = await resp.json()
+        for params in attempts:
+            logging.info("Instagram Looter запрос: params=%s", list(params))
+            async with session.get(endpoint, params=params, headers=headers, timeout=20) as resp:
+                body = await resp.text()
+                logging.info("Instagram Looter ответ: HTTP %s, %s байт", resp.status, len(body))
+                if resp.status == 200:
+                    try:
+                        data = await resp.json(content_type=None)
+                    except Exception as exc:
+                        logging.warning("Instagram Looter вернул не-JSON: %s", exc)
+                    if data:
+                        break
+                elif resp.status not in (400, 404):
+                    raise RuntimeError(f"Instagram Looter HTTP {resp.status}")
+    if data is None:
+        raise RuntimeError("Instagram Looter не вернул данные")
     media_url = _find_media_url(data)
     if not media_url:
         raise RuntimeError("Instagram Looter не вернул ссылку на media")
@@ -76,11 +94,22 @@ def _find_media_url(value):
         low = value.lower()
         if any(x in low for x in (".mp4", ".m3u8", ".jpg", ".jpeg", ".png", ".webp")):
             return value
+        # Instagram CDN media URLs commonly omit a file extension.
+        if "instagram" in low or "cdn" in low or "fbcdn" in low:
+            return value
     if isinstance(value, dict):
-        for key in ("video_url", "video", "download_url", "media_url", "url", "thumbnail_url"):
+        for key in ("video_url", "video", "download_url", "media_url"):
+            candidate = value.get(key)
+            if isinstance(candidate, str) and candidate.startswith(("http://", "https://")):
+                return candidate
             found = _find_media_url(value.get(key))
             if found:
                 return found
+        # Generic URLs are accepted only after media-specific fields; this
+        # handles CDN links that have no .mp4 suffix.
+        found = _find_media_url(value.get("url"))
+        if found:
+            return found
         for item in value.values():
             found = _find_media_url(item)
             if found:
@@ -93,6 +122,7 @@ def _find_media_url(value):
     return None
 
 async def download_instagram(url: str) -> str:
+    logging.info("Instagram pipeline: primary=%s fallback=%s", bool(RAPIDAPI_KEY), bool(RAPIDAPI_FALLBACK_KEY))
     # 1. Agar RapidAPI kaliti bo'lsa — avval API orqali sinab ko'ramiz
     if RAPIDAPI_KEY:
         try:
