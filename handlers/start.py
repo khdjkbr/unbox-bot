@@ -1,7 +1,7 @@
 from aiogram import Router, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message, CallbackQuery
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 from config import CHANNEL_USERNAME
 from services.subscription import check_subscription, get_sub_keyboard
 from services.database import add_user
@@ -9,11 +9,10 @@ from services.database import add_user
 router = Router()
 
 def main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Statistikam", callback_data="show_stats"),
-         InlineKeyboardButton(text="ℹ️ Yordam", callback_data="show_help")],
-        [InlineKeyboardButton(text="📢 Kanalimiz", url="https://t.me/unbox_uzb")],
-    ])
+    return ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📊 Statistikam"), KeyboardButton(text="ℹ️ Yordam")],
+        [KeyboardButton(text="📢 Kanalimiz")],
+    ], resize_keyboard=True, is_persistent=True)
 
 HELP_TEXT = ("ℹ️ <b>Botdan foydalanish:</b>\n\n"
              "Instagram, TikTok, Facebook, Twitter (X) yoki YouTube havolasini yuboring.\n"
@@ -54,13 +53,15 @@ async def cb_check_sub(callback: CallbackQuery):
 async def cmd_help(message: Message):
     await message.answer(HELP_TEXT, parse_mode="HTML", reply_markup=main_keyboard())
 
-@router.callback_query(F.data == "show_help")
-async def cb_help(callback: CallbackQuery):
-    await callback.answer()
-    await callback.message.answer(HELP_TEXT, parse_mode="HTML")
+@router.message(F.text == "ℹ️ Yordam")
+async def menu_help(message: Message):
+    await message.answer(HELP_TEXT, parse_mode="HTML", reply_markup=main_keyboard())
 
-@router.callback_query(F.data == "show_stats")
-async def cb_stats(callback: CallbackQuery):
+@router.message(F.text == "📊 Statistikam")
+async def menu_stats(message: Message):
     from handlers.media import send_stats_post
-    await callback.answer()
-    await send_stats_post(callback.message, callback.from_user.id)
+    await send_stats_post(message, message.from_user.id)
+
+@router.message(F.text == "📢 Kanalimiz")
+async def menu_channel(message: Message):
+    await message.answer("📢 Kanalimiz: @unbox_uzb", reply_markup=main_keyboard())
