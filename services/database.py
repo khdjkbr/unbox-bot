@@ -2,10 +2,26 @@ import sqlite3
 import os
 from contextlib import contextmanager
 from datetime import datetime
+import json
+from urllib.request import Request, urlopen
+from config import SUPABASE_URL, SUPABASE_KEY
 
 # Render's default filesystem is ephemeral. Set DATABASE_PATH to a mounted
 # persistent disk (for example /var/data/bot_database.db) in production.
 DB_PATH = os.getenv("DATABASE_PATH", "downloads/bot_database.db")
+
+def _remote():
+    return bool(SUPABASE_URL and SUPABASE_KEY)
+
+def _api(path, method="GET", payload=None, params=""):
+    url = SUPABASE_URL.rstrip("/") + "/rest/v1/" + path + params
+    body = json.dumps(payload).encode() if payload is not None else None
+    req = Request(url, data=body, method=method, headers={
+        "apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json", "Prefer": "return=representation,resolution=merge-duplicates"})
+    with urlopen(req, timeout=15) as resp:
+        raw = resp.read()
+        return json.loads(raw) if raw else []
 
 @contextmanager
 def get_connection():
@@ -18,6 +34,8 @@ def get_connection():
         conn.close()
 
 def init_db():
+    if _remote():
+        return
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute('''
@@ -32,6 +50,11 @@ def init_db():
 
 def add_user(user_id: int, username: str = None):
     if not user_id:
+        return
+    if _remote():
+        _api("users", "POST", {"user_id": user_id, "username": username,
+              "joined_at": datetime.now().strftime("%Y-%m-%d"), "downloads_count": 0},
+             "?on_conflict=user_id")
         return
     init_db()
     with get_connection() as conn:
@@ -48,6 +71,12 @@ def add_user(user_id: int, username: str = None):
 def increment_download(user_id: int):
     if not user_id:
         return
+    if _remote():
+        rows = _api("users", params=f"?user_id=eq.{user_id}&select=downloads_count")
+        if rows:
+            _api("users", "PATCH", {"downloads_count": rows[0]["downloads_count"] + 1},
+                 f"?user_id=eq.{user_id}")
+        return
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -59,6 +88,12 @@ def increment_download(user_id: int):
         conn.commit()
 
 def get_user_and_global_stats(user_id: int):
+    if _remote():
+        users = _api("users", params="?select=downloads_count")
+        mine = _api("users", params=f"?user_id=eq.{user_id}&select=downloads_count")
+        return {"user_downloads": mine[0]["downloads_count"] if mine else 0,
+                "total_users": len(users),
+                "total_downloads": sum(u.get("downloads_count", 0) or 0 for u in users)}
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -84,6 +119,11 @@ def get_user_and_global_stats(user_id: int):
         }
 
 def get_stats():
+    if _remote():
+        users = _api("users", params="?select=joined_at,downloads_count")
+        today = datetime.now().strftime("%Y-%m-%d")
+        return {"total_users": len(users), "today_users": sum(1 for u in users if u.get("joined_at") == today),
+                "total_downloads": sum(u.get("downloads_count", 0) or 0 for u in users)}
     init_db()
     with get_connection() as conn:
         cursor = conn.cursor()
