@@ -69,7 +69,8 @@ async def handle_links(message: Message):
     file_path = None
     progress = None
     try:
-        progress = await message.answer("⏳ Havola qabul qilindi, video yuklanmoqda…")
+        if message.chat.type == "private":
+            progress = await message.answer("⏳ Havola qabul qilindi, video yuklanmoqda…")
         await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
         if platform == "youtube":
             file_path = await download_youtube(url)
