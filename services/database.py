@@ -3,7 +3,9 @@ import os
 from contextlib import contextmanager
 from datetime import datetime
 
-DB_PATH = "downloads/bot_database.db"
+# Render's default filesystem is ephemeral. Set DATABASE_PATH to a mounted
+# persistent disk (for example /var/data/bot_database.db) in production.
+DB_PATH = os.getenv("DATABASE_PATH", "downloads/bot_database.db")
 
 @contextmanager
 def get_connection():
