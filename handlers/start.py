@@ -10,7 +10,7 @@ router = Router()
 
 def main_keyboard():
     return ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📊 Statistikam"), KeyboardButton(text="ℹ️ Yordam")],
+        [KeyboardButton(text="📊 Statistika"), KeyboardButton(text="ℹ️ Yordam")],
         [KeyboardButton(text="📢 Kanalimiz")],
     ], resize_keyboard=True, is_persistent=True)
 
@@ -57,7 +57,7 @@ async def cmd_help(message: Message):
 async def menu_help(message: Message):
     await message.answer(HELP_TEXT, parse_mode="HTML", reply_markup=main_keyboard())
 
-@router.message(F.text == "📊 Statistikam")
+@router.message(F.text.in_({"📊 Statistika", "📊 Statistikam"}))
 async def menu_stats(message: Message):
     from handlers.media import send_stats_post
     await send_stats_post(message, message.from_user.id)
