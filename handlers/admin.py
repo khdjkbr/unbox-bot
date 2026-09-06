@@ -5,7 +5,7 @@ from services.database import get_stats
 
 router = Router()
 
-@router.message(Command("stats"))
+@router.message(Command("stats", "stat"))
 async def cmd_stats(message: types.Message):
     user_id = message.from_user.id
     
