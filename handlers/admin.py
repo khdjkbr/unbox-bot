@@ -1,7 +1,7 @@
 from aiogram import Router, types
 from aiogram.filters import Command
 from config import ADMIN_ID
-from services.database import get_stats
+from services.database import get_user_and_global_stats
 
 router = Router()
 
@@ -24,12 +24,15 @@ async def cmd_stats(message: types.Message):
         return
 
     try:
-        stats = get_stats()
+        stats = get_user_and_global_stats(user_id)
         text = (
-            "📊 <b>Bot statistikasi:</b>\n\n"
-            f"👥 <b>Jami foydalanuvchilar:</b> <code>{stats['total_users']} ta</code>\n"
-            f"🆕 <b>Bugun qo'shilganlar:</b> <code>{stats['today_users']} ta</code>\n"
-            f"📥 <b>Jami yuklab olishlar:</b> <code>{stats['total_downloads']} ta</code>"
+            "📊 <b>Foydalanish statistikasi:</b>\n\n"
+            f"👤 <b>Sizning faolligingiz:</b>\n"
+            f"📥 Yuklab olgan videolaringiz: <b>{stats['user_downloads']} ta</b>\n\n"
+            f"🌐 <b>Umumiy bot statistikasi:</b>\n"
+            f"👥 Jami foydalanuvchilar: <b>{stats['total_users']} ta</b>\n"
+            f"🚀 Jami yuklab olishlar: <b>{stats['total_downloads']} ta</b>\n\n"
+            f"📢 <i>Kanalimizga a'zo bo'ling:</i> @unbox_uzb"
         )
         await message.answer(text, parse_mode="HTML")
     except Exception as e:
