@@ -67,7 +67,9 @@ async def handle_links(message: Message):
             return
 
     file_path = None
+    progress = None
     try:
+        progress = await message.answer("⏳ Havola qabul qilindi, video yuklanmoqda…")
         await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
         if platform == "youtube":
             file_path = await download_youtube(url)
@@ -106,9 +108,14 @@ async def handle_links(message: Message):
         # Statistikani yuborish (faqat lichkada)
         if user_id:
             await send_stats_post(message, user_id)
+        if progress:
+            await progress.delete()
     except Exception:
         logging.exception("Media download/upload failed: platform=%s", platform)
-        await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
+        if progress:
+            await progress.edit_text("❌ Yuklab bo‘lmadi. Havola ochiq va to‘g‘ri ekanini tekshiring.")
+        else:
+            await message.reply("❌ Yuklab bo‘lmadi. Havola ochiq va to‘g‘ri ekanini tekshiring.")
 
     finally:
         if file_path and os.path.isfile(file_path):
