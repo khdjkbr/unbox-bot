@@ -10,6 +10,9 @@ from handlers import start, media, admin
 
 logging.basicConfig(level=logging.INFO)
 
+if not BOT_TOKEN:
+    raise RuntimeError("BOT_TOKEN is missing. Set it in the environment or .env file.")
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -53,6 +56,7 @@ async def main():
     await start_web_server()
     asyncio.create_task(keep_awake_task()) # Avto-pingni orqa fonda ishga tushirish
     print("Bot muvaffaqiyatli ishga tushirildi!")
+    await bot.delete_webhook(drop_pending_updates=False)
     await dp.start_polling(bot)
 
 if __name__ == "__main__":

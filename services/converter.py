@@ -1,7 +1,6 @@
 import os
 import subprocess
 import logging
-import gc
 
 def convert_for_ios(input_path: str) -> str:
     """
@@ -34,10 +33,10 @@ def convert_for_ios(input_path: str) -> str:
         if result.returncode == 0 and os.path.exists(output_path) and os.path.getsize(output_path) > 0:
             if os.path.exists(input_path) and input_path != output_path:
                 os.remove(input_path)
-            gc.collect()
             return output_path
     except Exception as e:
         logging.warning(f"iOS konvertatsiyada xatolik: {e}")
 
-    gc.collect()
+    if os.path.exists(output_path):
+        os.remove(output_path)
     return input_path

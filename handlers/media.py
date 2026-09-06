@@ -1,21 +1,22 @@
 import os
-import re
+import asyncio
+from services.links import extract_link
 import logging
 from aiogram import Router, F, types
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import Message
 from config import CHANNEL_USERNAME, PROMO_CAPTION
 from services.subscription import check_subscription, get_sub_keyboard
 from services.instagram import download_instagram
 from services.tiktok import download_tiktok
 from services.facebook import download_facebook
 from services.twitter import download_twitter
-from services.youtube import get_browser_download_url
+from services.youtube import download_youtube
 from services.database import add_user, increment_download, get_user_and_global_stats
 from services.converter import convert_for_ios
 
 router = Router()
 
-LINK_REGEX = r'(https?://[^\s]*(?:instagram\.com|tiktok\.com|youtube\.com|youtu\.be|facebook\.com|fb\.watch|twitter\.com|x\.com)[^\s]*)'
+
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
 async def send_stats_post(message: Message, user_id: int):
@@ -40,10 +41,10 @@ async def send_stats_post(message: Message, user_id: int):
 @router.message(F.text | F.caption)
 async def handle_links(message: Message):
     content = message.text or message.caption or ""
-    match = re.search(LINK_REGEX, content)
+    match = extract_link(content)
     if not match:
         return
-    url = match.group(0)
+    url, platform = match
 
     # Foydalanuvchini bazaga qo'shish
     user_id = message.from_user.id if message.from_user else (message.sender_chat.id if message.sender_chat else 0)
@@ -55,6 +56,9 @@ async def handle_links(message: Message):
     # Shaxsiy xabarlarda: obunani tekshirish
     if message.chat.type == "private":
         is_sub = await check_subscription(message.bot, user_id)
+        if is_sub is None:
+            await message.answer("⚠️ Obunani tekshirib bo‘lmadi. Keyinroq urinib ko‘ring.")
+            return
         if not is_sub:
             await message.answer(
                 f"⚠️ Videoni yuklab olish uchun avval kanalimizga a'zo bo'ling: {CHANNEL_USERNAME}",
@@ -62,35 +66,16 @@ async def handle_links(message: Message):
             )
             return
 
-    is_youtube = ("youtube.com" in url or "youtu.be" in url)
-
-    # 1. YouTube havolalari: SaveFrom havolasi
-    if is_youtube:
-        if user_id:
-            increment_download(user_id)
-        download_url = get_browser_download_url(url)
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="📥 Videoni yuklab olish (SaveFrom)", url=download_url)]
-        ])
-        
-        text = (
-            f"🎬 <b>YouTube videoni yuklab olish havolasi tayyor!</b>\n\n"
-            f"Quyidagi tugma orqali videoni to'g'ridan-to'g'ri SaveFrom orqali yuklab olishingiz mumkin:\n\n"
-            f"{PROMO_CAPTION}"
-        )
-        await message.reply(text, reply_markup=kb, parse_mode="HTML")
-        if user_id:
-            await send_stats_post(message, user_id)
-        return
-
-    # 2. Instagram, TikTok, Facebook va Twitter (X): Faylni Telegramga yuklash
-    await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+    file_path = None
     try:
-        if "tiktok.com" in url:
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="upload_video")
+        if platform == "youtube":
+            file_path = await download_youtube(url)
+        elif platform == "tiktok":
             file_path = await download_tiktok(url)
-        elif "facebook.com" in url or "fb.watch" in url:
+        elif platform == "facebook":
             file_path = await download_facebook(url)
-        elif "twitter.com" in url or "x.com" in url:
+        elif platform == "twitter":
             file_path = await download_twitter(url)
         else:
             file_path = await download_instagram(url)
@@ -101,12 +86,11 @@ async def handle_links(message: Message):
             await message.reply_photo(photo=photo_file, caption=PROMO_CAPTION)
         else:
             # Agar video bo'lsa: iPhone uchun H.264 formatlash
-            file_path = convert_for_ios(file_path)
+            file_path = await asyncio.to_thread(convert_for_ios, file_path)
 
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             if file_size_mb > 50:
                 await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
-                os.remove(file_path)
                 return
 
             video_file = types.FSInputFile(file_path)
@@ -118,11 +102,14 @@ async def handle_links(message: Message):
 
         if user_id:
             increment_download(user_id)
-        os.remove(file_path)
         
         # Statistikani yuborish (faqat lichkada)
         if user_id:
             await send_stats_post(message, user_id)
-    except Exception as e:
-        logging.error(f"Xatolik: {e}")
+    except Exception:
+        logging.exception("Media download/upload failed: platform=%s", platform)
         await message.reply("❌ Videoni yuklab bo'lmadi. Havola to'g'riligini tekshiring.")
+
+    finally:
+        if file_path and os.path.isfile(file_path):
+            os.remove(file_path)

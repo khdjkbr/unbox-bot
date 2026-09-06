@@ -12,6 +12,9 @@ async def cmd_start(message: Message):
     if message.chat.type == "private":
         add_user(message.from_user.id, message.from_user.username)
         is_sub = await check_subscription(message.bot, message.from_user.id)
+        if is_sub is None:
+            await message.answer("⚠️ Obunani tekshirib bo‘lmadi. Keyinroq urinib ko‘ring.")
+            return
         if not is_sub:
             await message.answer(
                 f"👋 Assalomu alaykum! Botdan foydalanish va video yuklab olish uchun "
@@ -24,7 +27,11 @@ async def cmd_start(message: Message):
 @router.callback_query(F.data == "check_sub_again")
 async def cb_check_sub(callback: CallbackQuery):
     is_sub = await check_subscription(callback.bot, callback.from_user.id)
+    if is_sub is None:
+        await callback.answer("⚠️ Obunani tekshirib bo‘lmadi. Keyinroq urinib ko‘ring.", show_alert=True)
+        return
     if is_sub:
+        await callback.answer()
         await callback.message.delete()
         await callback.message.answer("👋 Assalomu alaykum! Menga Instagram, TikTok, Facebook, Twitter (X) yoki YouTube havolasini yuboring, men mediafaylni yuklab beraman!")
     else:

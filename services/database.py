@@ -1,12 +1,19 @@
 import sqlite3
 import os
+from contextlib import contextmanager
 from datetime import datetime
 
 DB_PATH = "downloads/bot_database.db"
 
+@contextmanager
 def get_connection():
-    os.makedirs("downloads", exist_ok=True)
-    return sqlite3.connect(DB_PATH)
+    os.makedirs(os.path.dirname(os.path.abspath(DB_PATH)), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 def init_db():
     with get_connection() as conn:
@@ -33,7 +40,7 @@ def add_user(user_id: int, username: str = None):
             VALUES (?, ?, ?, 0)
             ON CONFLICT(user_id) DO UPDATE SET
             username = COALESCE(excluded.username, users.username)
-        ''', (user_id, username or "", today))
+        ''', (user_id, username, today))
         conn.commit()
 
 def increment_download(user_id: int):
@@ -57,7 +64,7 @@ def get_user_and_global_stats(user_id: int):
         # Foydalanuvchining shaxsiy yuklab olishlari
         cursor.execute('SELECT downloads_count FROM users WHERE user_id = ?', (user_id,))
         user_row = cursor.fetchone()
-        user_downloads = user_row[0] if user_row else 1
+        user_downloads = user_row[0] if user_row else 0
         
         # Jami barcha foydalanuvchilar (guruhdagilar + lichkadagilar)
         cursor.execute('SELECT COUNT(*) FROM users')
