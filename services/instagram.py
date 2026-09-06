@@ -2,7 +2,7 @@ from services.http_download import save_response
 import os
 import logging
 import aiohttp
-from config import RAPIDAPI_KEY
+from config import RAPIDAPI_KEY, RAPIDAPI_FALLBACK_KEY
 from services.downloader import download_media
 
 # --- 1-USUL: RapidAPI orqali Stories va postlarni yuklash ---
@@ -48,6 +48,50 @@ async def _download_instagram_rapidapi(url: str) -> str:
                             return await save_response(v_resp, temp_path)
     raise Exception("RapidAPI orqali Instagram yuklab bo'lmadi")
 
+
+async def _download_instagram_looter(url: str) -> str:
+    """Fallback API. It returns metadata; recursively find the first media URL."""
+    if not RAPIDAPI_FALLBACK_KEY:
+        raise ValueError("RAPIDAPI_FALLBACK_KEY mavjud emas")
+    endpoint = "https://instagram-looter2.p.rapidapi.com/post"
+    headers = {"x-rapidapi-key": RAPIDAPI_FALLBACK_KEY,
+               "x-rapidapi-host": "instagram-looter2.p.rapidapi.com"}
+    async with aiohttp.ClientSession() as session:
+        async with session.get(endpoint, params={"url": url}, headers=headers, timeout=20) as resp:
+            if resp.status != 200:
+                raise RuntimeError(f"Instagram Looter HTTP {resp.status}")
+            data = await resp.json()
+    media_url = _find_media_url(data)
+    if not media_url:
+        raise RuntimeError("Instagram Looter не вернул ссылку на media")
+    ext = ".jpg" if any(x in media_url.lower() for x in (".jpg", ".jpeg", ".png", ".webp")) else ".mp4"
+    path = f"downloads/ig_looter_{os.urandom(6).hex()}{ext}"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(media_url, timeout=40) as resp:
+            return await save_response(resp, path)
+
+
+def _find_media_url(value):
+    if isinstance(value, str) and value.startswith(("http://", "https://")):
+        low = value.lower()
+        if any(x in low for x in (".mp4", ".m3u8", ".jpg", ".jpeg", ".png", ".webp")):
+            return value
+    if isinstance(value, dict):
+        for key in ("video_url", "video", "download_url", "media_url", "url", "thumbnail_url"):
+            found = _find_media_url(value.get(key))
+            if found:
+                return found
+        for item in value.values():
+            found = _find_media_url(item)
+            if found:
+                return found
+    if isinstance(value, list):
+        for item in value:
+            found = _find_media_url(item)
+            if found:
+                return found
+    return None
+
 async def download_instagram(url: str) -> str:
     # 1. Agar RapidAPI kaliti bo'lsa — avval API orqali sinab ko'ramiz
     if RAPIDAPI_KEY:
@@ -56,5 +100,12 @@ async def download_instagram(url: str) -> str:
         except Exception as e:
             logging.warning(f"Instagram RapidAPI xatolik: {e}")
 
-    # 2. Zaxira: yt-dlp
+    # 2. Fallback RapidAPI subscription, independent quota
+    if RAPIDAPI_FALLBACK_KEY:
+        try:
+            return await _download_instagram_looter(url)
+        except Exception as e:
+            logging.warning(f"Instagram Looter fallback xatolik: {e}")
+
+    # 3. Zaxira: yt-dlp
     return await download_media(url)
