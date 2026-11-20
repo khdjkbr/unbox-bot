@@ -43,11 +43,13 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'file.mp4'
             path.write_bytes(b'video')
+            progress = SimpleNamespace(edit_text=AsyncMock())
             message = SimpleNamespace(
                 text='https://www.instagram.com/reel/test/', caption=None,
                 from_user=SimpleNamespace(id=123, username='tester'),
                 chat=SimpleNamespace(id=123, type='private'),
                 bot=SimpleNamespace(send_chat_action=AsyncMock()),
+                answer=AsyncMock(return_value=progress),
                 reply_video=AsyncMock(side_effect=RuntimeError('upload failed')),
                 reply=AsyncMock(),
             )
@@ -58,7 +60,8 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
                  patch.object(media, 'increment_download') as increment:
                 await media.handle_links(message)
                 increment.assert_not_called()
-                message.reply.assert_awaited_once()
+                progress.edit_text.assert_awaited_once()
+                self.assertEqual(message.reply_video.await_args.kwargs['parse_mode'], 'HTML')
             self.assertFalse(path.exists())
 
     def test_final_file_selected_and_fragments_removed(self):

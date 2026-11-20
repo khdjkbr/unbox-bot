@@ -5,8 +5,15 @@ import time
 from uuid import uuid4
 from urllib.parse import urlsplit
 import aiohttp
-from services.downloader import download_media
+from services.downloader import MAX_MEDIA_BYTES, download_media
 from services.http_download import save_response
+
+YOUTUBE_FORMAT = (
+    'best[ext=mp4][height<=720][filesize<=?50M][filesize_approx<=?50M]'
+    '/bestvideo[height<=720][filesize<=?45M][filesize_approx<=?45M]'
+    '+bestaudio[filesize<=?4M][filesize_approx<=?4M]'
+    '/best[filesize<=?50M][filesize_approx<=?50M]'
+)
 
 _lock = asyncio.Lock()
 _next_request = 0.0
@@ -57,13 +64,18 @@ async def _yoinku(url, key):
         path = f'downloads/youtube_{uuid4().hex}.mp4'
         # Do not forward API credentials to the file host.
         async with session.get(media_url) as response:
-            if response.content_length and response.content_length > 50 * 1024 * 1024:
+            if response.content_length and response.content_length > MAX_MEDIA_BYTES:
                 raise ValueError('Media exceeds 50 MB')
             return await save_response(response, path)
 
 async def download_youtube(url):
     try:
-        return await download_media(url)
+        path = await download_media(url, format_selector=YOUTUBE_FORMAT)
+        # A merged video can exceed the limit even when its parts fit.
+        if os.path.getsize(path) > MAX_MEDIA_BYTES:
+            os.remove(path)
+            raise ValueError('YouTube download exceeds 50 MB')
+        return path
     except Exception:
         logging.warning('YouTube direct download failed; checking fallback')
         key = os.getenv('YOINKU_API_KEY')

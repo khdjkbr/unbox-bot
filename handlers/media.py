@@ -86,7 +86,9 @@ async def handle_links(message: Message):
         # Agar rasm (foto-stories) bo'lsa:
         if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
             photo_file = types.FSInputFile(file_path)
-            await message.reply_photo(photo=photo_file, caption=PROMO_CAPTION)
+            await message.reply_photo(
+                photo=photo_file, caption=PROMO_CAPTION, parse_mode="HTML"
+            )
         else:
             # Agar video bo'lsa: iPhone uchun H.264 formatlash
             file_path = await asyncio.to_thread(convert_for_ios, file_path)
@@ -98,9 +100,10 @@ async def handle_links(message: Message):
 
             video_file = types.FSInputFile(file_path)
             await message.reply_video(
-                video=video_file, 
+                video=video_file,
                 caption=PROMO_CAPTION,
-                supports_streaming=True
+                parse_mode="HTML",
+                supports_streaming=True,
             )
 
         if user_id:

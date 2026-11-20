@@ -1,8 +1,9 @@
 # Video download bot
 
-Python 3.11+ and FFmpeg must be available. Install `requirements.txt`, copy
-`.env.example` to `.env`, set `BOT_TOKEN`, then run `python bot.py`.
-Docker includes FFmpeg. Run only one polling process per bot token.
+For a local install, use Python 3.11+, FFmpeg and Node.js 22+. Install
+`requirements.txt`, copy `.env.example` to `.env`, set `BOT_TOKEN`, then run
+`python bot.py`. The Dockerfile includes FFmpeg and Node.js.
+Run only one polling process per bot token.
 The bot must be an administrator of `@unbox_uzb` for reliable subscription checks.
 
 ## Diagnostics
@@ -14,8 +15,11 @@ The bot must be an administrator of `@unbox_uzb` for reliable subscription check
 - `RAPIDAPI_KEY` is optional and requires access to the configured API. On failure,
   Instagram falls back to yt-dlp.
 - Update yt-dlp when a platform changes its extractor requirements.
-- YouTube now uses the download pipeline; platform authentication/JavaScript
-  requirements can still apply. Only the first media item is downloaded.
+- YouTube prefers up to 720p and skips formats reported to exceed the 50 MiB
+  upload budget. When the size is unavailable, the downloader checks the completed
+  file. `yt-dlp[default]` installs the JavaScript challenge scripts used with Node.js.
+- `YOINKU_API_KEY` optionally enables the existing YouTube fallback when direct
+  download fails. Set it as a runtime secret if you use this service.
 - Store `downloads/bot_database.db` on persistent storage to preserve statistics.
 - Self-pinging cannot guarantee continuous operation on hosting that suspends apps.
 
