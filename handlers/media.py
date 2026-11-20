@@ -1,8 +1,10 @@
 import os
 import asyncio
+from contextlib import suppress
 from services.links import extract_link
 import logging
 from aiogram import Router, F, types
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import Message
 from config import CHANNEL_USERNAME, PROMO_CAPTION
 from services.subscription import check_subscription, get_sub_keyboard
@@ -16,6 +18,16 @@ from services.converter import convert_for_ios
 
 router = Router()
 
+
+async def report_download_error(message, progress, text):
+    if progress:
+        try:
+            await progress.edit_text(text)
+            return
+        except TelegramBadRequest:
+            # The progress message can be removed while the bot downloads.
+            pass
+    await message.answer(text)
 
 
 # Shaxsiy va umumiy statistikani faqat LICHKADA yuborish
@@ -83,11 +95,15 @@ async def handle_links(message: Message):
         else:
             file_path = await download_instagram(url)
         
+        reply_parameters = types.ReplyParameters(
+            message_id=message.message_id, allow_sending_without_reply=True
+        )
         # Agar rasm (foto-stories) bo'lsa:
         if file_path.lower().endswith(('.jpg', '.jpeg', '.png', '.webp')):
             photo_file = types.FSInputFile(file_path)
-            await message.reply_photo(
-                photo=photo_file, caption=PROMO_CAPTION, parse_mode="HTML"
+            await message.answer_photo(
+                photo=photo_file, caption=PROMO_CAPTION, parse_mode="HTML",
+                reply_parameters=reply_parameters,
             )
         else:
             # Agar video bo'lsa: iPhone uchun H.264 formatlash
@@ -95,14 +111,17 @@ async def handle_links(message: Message):
 
             file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
             if file_size_mb > 50:
-                await message.reply("❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi.")
+                await report_download_error(
+                    message, progress, "❌ Fayl hajmi Telegram cheklovidan (50 MB) oshib ketdi."
+                )
                 return
 
             video_file = types.FSInputFile(file_path)
-            await message.reply_video(
+            await message.answer_video(
                 video=video_file,
                 caption=PROMO_CAPTION,
                 parse_mode="HTML",
+                reply_parameters=reply_parameters,
                 supports_streaming=True,
             )
 
@@ -113,13 +132,13 @@ async def handle_links(message: Message):
         if user_id:
             await send_stats_post(message, user_id)
         if progress:
-            await progress.delete()
+            with suppress(TelegramBadRequest):
+                await progress.delete()
     except Exception:
         logging.exception("Media download/upload failed: platform=%s", platform)
-        if progress:
-            await progress.edit_text("❌ Yuklab bo‘lmadi. Havola ochiq va to‘g‘ri ekanini tekshiring.")
-        else:
-            await message.reply("❌ Yuklab bo‘lmadi. Havola ochiq va to‘g‘ri ekanini tekshiring.")
+        await report_download_error(
+            message, progress, "❌ Yuklab bo‘lmadi. Havola ochiq va to‘g‘ri ekanini tekshiring."
+        )
 
     finally:
         if file_path and os.path.isfile(file_path):

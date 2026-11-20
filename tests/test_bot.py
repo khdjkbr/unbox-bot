@@ -5,6 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.methods import EditMessageText
+
 from handlers import media
 from services import database, downloader
 from services.http_download import save_response
@@ -46,12 +49,12 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
             progress = SimpleNamespace(edit_text=AsyncMock())
             message = SimpleNamespace(
                 text='https://www.instagram.com/reel/test/', caption=None,
+                message_id=10,
                 from_user=SimpleNamespace(id=123, username='tester'),
                 chat=SimpleNamespace(id=123, type='private'),
                 bot=SimpleNamespace(send_chat_action=AsyncMock()),
                 answer=AsyncMock(return_value=progress),
-                reply_video=AsyncMock(side_effect=RuntimeError('upload failed')),
-                reply=AsyncMock(),
+                answer_video=AsyncMock(side_effect=RuntimeError('upload failed')),
             )
             with patch.object(media, 'add_user'), \
                  patch.object(media, 'check_subscription', AsyncMock(return_value=True)), \
@@ -61,8 +64,22 @@ class RegressionTests(unittest.IsolatedAsyncioTestCase):
                 await media.handle_links(message)
                 increment.assert_not_called()
                 progress.edit_text.assert_awaited_once()
-                self.assertEqual(message.reply_video.await_args.kwargs['parse_mode'], 'HTML')
+                sent = message.answer_video.await_args.kwargs
+                self.assertEqual(sent['parse_mode'], 'HTML')
+                self.assertEqual(sent['reply_parameters'].message_id, 10)
+                self.assertTrue(sent['reply_parameters'].allow_sending_without_reply)
             self.assertFalse(path.exists())
+
+    async def test_removed_progress_message_still_reports_failure(self):
+        missing_message = TelegramBadRequest(
+            method=EditMessageText(text='failed'), message='message to edit not found'
+        )
+        progress = SimpleNamespace(edit_text=AsyncMock(side_effect=missing_message))
+        message = SimpleNamespace(answer=AsyncMock())
+
+        await media.report_download_error(message, progress, 'Download failed')
+
+        message.answer.assert_awaited_once_with('Download failed')
 
     def test_final_file_selected_and_fragments_removed(self):
         folders = []

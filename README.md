@@ -6,6 +6,11 @@ For a local install, use Python 3.11+, FFmpeg and Node.js 22+. Install
 Run only one polling process per bot token.
 The bot must be an administrator of `@unbox_uzb` for reliable subscription checks.
 
+The Dockerfile health check requests `GET /` on the container's loopback
+address using `PORT` (default `10000`). It checks that the bot process can
+serve HTTP. Keep Coolify's dashboard health-check override disabled to use
+the image check. Configure single-container replacement for the polling bot.
+
 ## Diagnostics
 
 - Check hosting logs for `Media download/upload failed` and the traceback.
