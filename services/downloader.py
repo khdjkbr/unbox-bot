@@ -8,6 +8,10 @@ import yt_dlp
 from yt_dlp.postprocessor import PostProcessor
 
 
+MAX_MEDIA_BYTES = 50 * 1024 * 1024
+DEFAULT_FORMAT = 'best[ext=mp4][height<=720]/bestvideo[height<=720]+bestaudio/best'
+
+
 class CaptureFile(PostProcessor):
     def __init__(self):
         super().__init__()
@@ -18,12 +22,12 @@ class CaptureFile(PostProcessor):
         return [], info
 
 
-def download_sync(url: str) -> str:
+def download_sync(url: str, *, format_selector: str = DEFAULT_FORMAT) -> str:
     os.makedirs('downloads', exist_ok=True)
     folder = tempfile.mkdtemp(prefix='media_', dir='downloads')
     capture = CaptureFile()
     options = {
-        'format': 'best[ext=mp4][height<=720]/bestvideo[height<=720]+bestaudio/best',
+        'format': format_selector,
         'outtmpl': os.path.join(folder, '%(id)s.%(ext)s'),
         'merge_output_format': 'mp4',
         'noplaylist': True,
@@ -31,9 +35,10 @@ def download_sync(url: str) -> str:
         'socket_timeout': 20,
         'retries': 2,
         'fragment_retries': 2,
-        'max_filesize': 50 * 1024 * 1024,
+        'max_filesize': MAX_MEDIA_BYTES,
         'js_runtimes': {'node': {}},
         'quiet': True,
+        'noprogress': True,
     }
     if os.getenv('YTDLP_COOKIES_FILE'):
         # yt-dlp writes its cookie jar on exit; Render secrets may be read-only.
@@ -56,5 +61,5 @@ def download_sync(url: str) -> str:
         shutil.rmtree(folder)
 
 
-async def download_media(url: str) -> str:
-    return await asyncio.to_thread(download_sync, url)
+async def download_media(url: str, *, format_selector: str = DEFAULT_FORMAT) -> str:
+    return await asyncio.to_thread(download_sync, url, format_selector=format_selector)

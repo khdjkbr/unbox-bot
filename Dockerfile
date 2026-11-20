@@ -13,4 +13,7 @@ COPY . .
 
 EXPOSE 10000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD ["python", "-c", "from http.client import HTTPConnection; from os import getenv; conn = HTTPConnection('127.0.0.1', int(getenv('PORT', '10000')), timeout=3); conn.request('GET', '/'); raise SystemExit(conn.getresponse().status != 200)"]
+
 CMD ["python", "bot.py"]
